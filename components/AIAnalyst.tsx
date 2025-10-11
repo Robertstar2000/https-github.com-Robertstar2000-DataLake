@@ -8,7 +8,6 @@ const Loader: React.FC = () => (
     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-    <span className="text-slate-400">AI Analyst is thinking...</span>
   </div>
 );
 
@@ -21,13 +20,18 @@ const AIAnalyst: React.FC = () => {
   const [schemaDisplay, setSchemaDisplay] = useState('');
   
   const chatInitialized = useRef(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const exampleQueries = [
     "Which customer has spent the most money?",
     "What is our best-selling product by revenue?",
     "How many orders did we have in January 2023?",
-    "List all orders for 'Alice Johnson'.",
+    "List all orders for 'Innovate Corp'.",
   ];
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [history]);
 
   const handleAnalyzeSchema = async () => {
     setIsLoading(true);
@@ -48,37 +52,57 @@ const AIAnalyst: React.FC = () => {
     }
   };
 
-  const handleQuerySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim() || !chatInitialized.current) {
+  const handleQuerySubmit = async (e: React.FormEvent | null, prompt?: string) => {
+    if (e) e.preventDefault();
+    const userQuery = prompt || query;
+
+    if (!userQuery.trim() || !chatInitialized.current) {
         if(!chatInitialized.current) setError("Please analyze the schema first.");
         return;
     };
 
     setIsLoading(true);
     setError('');
+    setQuery(''); // Clear input after submission
 
-    const userQuery = query;
-    setQuery('');
-    setHistory(prev => [...prev, { role: 'user', parts: userQuery }]);
+    // Add user query and a placeholder for the model's response
+    setHistory(prev => [...prev, { role: 'user', parts: userQuery }, { role: 'model', parts: '' }]);
     
     try {
       const stream = await getAiAnalystResponseStream(userQuery);
       
-      let text = '';
-      setHistory(prev => [...prev, {role: 'model', parts: ''}]); // Add empty model response
-
+      let isFinalAnswerStage = false;
       for await (const chunk of stream) {
-        text += chunk.text;
         setHistory(prev => {
             const newHistory = [...prev];
-            newHistory[newHistory.length - 1].parts = text;
+            const lastMessage = newHistory[newHistory.length - 1];
+            
+            if (chunk.status && chunk.text) {
+                 if (chunk.status === 'error') {
+                     lastMessage.parts = `Error: ${chunk.text}`;
+                     setError(chunk.text);
+                 } else if (chunk.status === 'final_answer') {
+                    if (!isFinalAnswerStage) {
+                        lastMessage.parts = chunk.text; // Overwrite status message
+                        isFinalAnswerStage = true;
+                    } else {
+                        lastMessage.parts += chunk.text; // Append subsequent chunks
+                    }
+                } else {
+                    lastMessage.parts = chunk.text; // Show status update
+                }
+            }
             return newHistory;
         });
       }
     } catch (err: any) {
       setError('Failed to get response from AI Analyst: ' + err.message);
       console.error(err);
+      setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length-1].parts = 'An error occurred while processing your request.';
+          return newHistory;
+      });
     } finally {
       setIsLoading(false);
     }
@@ -86,16 +110,34 @@ const AIAnalyst: React.FC = () => {
   
   const handleExampleClick = (exampleQuery: string) => {
       setQuery(exampleQuery);
+      handleQuerySubmit(null, exampleQuery);
   }
 
   const renderResponse = (content: string) => {
-      return content.split('\n').map((line, i) => {
-          // Basic markdown for bold and lists
-          line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-          if (line.trim().startsWith('- ')) {
-              return <li key={i} className="ml-4 list-disc">{line.substring(2)}</li>;
+      const sqlRegex = /```sql\n([\s\S]*?)\n```/g;
+      const parts = content.split(sqlRegex);
+  
+      return parts.map((part, i) => {
+          if (i % 2 === 1) { // SQL code block
+              return (
+                  <pre key={i} className="bg-slate-950 p-3 rounded-md text-cyan-300 font-mono text-sm my-2 overflow-x-auto">
+                      <code>{part.trim()}</code>
+                  </pre>
+              );
           }
-          return <p key={i}>{line}</p>;
+          // Regular text
+          const textParts = part.split(/(\*\*.*?\*\*)/g).filter(Boolean);
+          return textParts.map((textPart, j) => {
+            if (textPart.startsWith('**') && textPart.endsWith('**')) {
+                return <strong key={`${i}-${j}`}>{textPart.slice(2, -2)}</strong>;
+            }
+            return textPart.split('\n').map((line, k) => {
+              if (line.trim().startsWith('- ')) {
+                  return <li key={`${i}-${j}-${k}`} className="ml-4 list-disc">{line.substring(2)}</li>;
+              }
+              return <p key={`${i}-${j}-${k}`} className="inline">{line}</p>;
+            });
+          });
       });
   };
 
@@ -104,7 +146,7 @@ const AIAnalyst: React.FC = () => {
       <h1 className="text-3xl font-bold text-white">AI Data Analyst</h1>
       <p className="text-slate-400">
         {isSchemaAnalyzed 
-          ? "Ask questions about your data in plain English. The AI has been provided with the table schemas for context."
+          ? "Ask questions about your data in plain English. The AI will generate and run SQL queries to find the answer."
           : "Start by analyzing the schema to provide the AI with context about your database tables."
         }
       </p>
@@ -112,7 +154,7 @@ const AIAnalyst: React.FC = () => {
       {isSchemaAnalyzed && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {exampleQueries.map((q) => (
-              <button key={q} onClick={() => handleExampleClick(q)} className="p-3 bg-slate-800 rounded-lg text-left text-sm text-slate-300 hover:bg-slate-700/50 transition-colors duration-200">
+              <button key={q} onClick={() => handleExampleClick(q)} disabled={isLoading} className="p-3 bg-slate-800 rounded-lg text-left text-sm text-slate-300 hover:bg-slate-700/50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
                   {q}
               </button>
           ))}
@@ -131,10 +173,10 @@ const AIAnalyst: React.FC = () => {
              <div key={index} className={`p-4 rounded-lg ${msg.role === 'user' ? 'bg-cyan-900/50' : 'bg-slate-900/50'}`}>
                 <h3 className="font-semibold mb-2 capitalize">{msg.role === 'model' ? <span className="text-cyan-400">AI Analyst</span> : 'You'}</h3>
                 <div className="prose prose-invert prose-p:text-slate-300 prose-strong:text-white whitespace-pre-wrap">{renderResponse(msg.parts)}</div>
+                 {isLoading && index === history.length - 1 && msg.role === 'model' && <div className="mt-2"><Loader /></div>}
             </div>
           ))}
-          {isLoading && <Loader />}
-          {error && (
+          {error && !isLoading && (
             <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-3">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -154,10 +196,11 @@ const AIAnalyst: React.FC = () => {
                       disabled={isLoading}
                       className="bg-cyan-500 text-white font-semibold px-6 py-2 rounded-lg hover:bg-cyan-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200"
                   >
-                      Analyze Table Schema
+                      {isLoading ? 'Analyzing...' : 'Analyze Table Schema'}
                   </button>
               </div>
           )}
+          <div ref={chatEndRef} />
         </div>
         
         {isSchemaAnalyzed && (

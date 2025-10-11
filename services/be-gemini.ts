@@ -1,7 +1,7 @@
 
-import { GoogleGenAI, Chat, Type } from "@google/genai";
+import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
-import { getTableSchemas } from './be-db';
+import { executeQuery as executeDbQuery, getTableSchemas } from './be-db';
 import { schemaMetadata } from '../data/schemaMetadata';
 
 const API_KEY = process.env.API_KEY;
@@ -13,6 +13,23 @@ if (!API_KEY) {
 
 // Instantiate the AI client only if the API key is available.
 const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
+
+// --- Rate Limiting ---
+let lastApiCallTimestamp = 0;
+const MIN_API_CALL_INTERVAL_MS = 2000; // 2 seconds
+
+async function ensureApiRateLimit() {
+  const now = Date.now();
+  const timeSinceLastCall = now - lastApiCallTimestamp;
+  if (timeSinceLastCall < MIN_API_CALL_INTERVAL_MS) {
+    const delay = MIN_API_CALL_INTERVAL_MS - timeSinceLastCall;
+    console.log(`Rate limiting API call. Waiting for ${delay}ms...`);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  lastApiCallTimestamp = Date.now();
+}
+// --- End Rate Limiting ---
+
 
 // --- From former geminiService.ts ---
 export const processUnstructuredData = async (
@@ -46,6 +63,7 @@ export const processUnstructuredData = async (
   `;
 
   try {
+    await ensureApiRateLimit();
     const response = await ai.models.generateContent({
       model: model,
       contents: contextPrompt,
@@ -75,24 +93,93 @@ export const initializeAiAnalyst = (): { displaySchema: string } => {
         .map(([table, cols]) => `Table "${table}" has columns: ${cols}`)
         .join('\n');
     
-    const systemInstruction = `You are an expert data analyst for an e-commerce company. Your task is to answer questions based on the provided SQL table schemas. Be concise and clear in your answers. If the question cannot be answered from the schemas, state that clearly. Analyze the relationships between customers, products, and orders to provide insightful answers. Do not attempt to run or generate SQL. Here are the table schemas: ${contextSchema}`;
+    const executeQuerySqlDeclaration: FunctionDeclaration = {
+      name: 'executeQuerySql',
+      parameters: {
+          type: Type.OBJECT,
+          description: 'Executes a read-only SQL query against the database and returns the result as a JSON object array. Use this tool to answer any questions about data.',
+          properties: {
+              query: {
+                  type: Type.STRING,
+                  description: 'The SQL query to execute. Must be a SELECT statement.',
+              },
+          },
+          required: ['query'],
+      },
+    };
+
+    const systemInstruction = `You are an expert data analyst. Your task is to answer user questions based on the provided SQL table schemas.
+- When asked a question that requires specific data from the database, you MUST use the \`executeQuerySql\` tool to get the information.
+- Construct a valid SQL query based on the user's question and the available schemas.
+- Do not make up data.
+- Once you receive the data from the tool, summarize the result in a clear, user-friendly, natural language response.
+- If the result is a list of items, format it as a markdown list.
+- If the query returns no results, state that clearly.
+- Here are the table schemas: ${contextSchema}`;
 
     analystChat = ai.chats.create({
       model: 'gemini-2.5-flash',
       config: {
-        systemInstruction: systemInstruction
+        systemInstruction: systemInstruction,
+        tools: [{ functionDeclarations: [executeQuerySqlDeclaration] }],
       },
     });
       
     return { displaySchema };
 };
 
-export const getAiAnalystResponseStream = (query: string) => {
+export async function* getAiAnalystResponseStream(query: string) {
     if (!analystChat) {
         throw new Error("AI Analyst chat not initialized.");
     }
-    return analystChat.sendMessageStream({ message: query });
-};
+
+    try {
+        // Step 1: Send user query to the model
+        yield { status: 'thinking', text: 'Analyzing your question...' };
+        await ensureApiRateLimit();
+        const response = await analystChat.sendMessage({ message: query });
+    
+        // Step 2: Check for a function call from the model
+        const functionCalls = response.functionCalls;
+        if (functionCalls && functionCalls.length > 0) {
+            const fc = functionCalls[0];
+            if (fc.name === 'executeQuerySql') {
+                const sqlQuery = fc.args.query;
+                yield { status: 'generating_sql', text: `I've generated the following SQL query:\n\n\`\`\`sql\n${sqlQuery}\n\`\`\`` };
+                
+                // Step 3: Execute the SQL query
+                yield { status: 'querying', text: 'Executing query against the database...' };
+                const dbResult = executeDbQuery(sqlQuery);
+    
+                // Step 4: Send the database results back to the model
+                yield { status: 'summarizing', text: 'Interpreting database results...' };
+                await ensureApiRateLimit();
+                const toolResponseStream = await analystChat.sendMessageStream({
+                    toolResponses: [{
+                        functionResponse: {
+                            id: fc.id,
+                            name: fc.name,
+                            response: { result: JSON.stringify(dbResult) },
+                        }
+                    }],
+                });
+    
+                // Step 5: Stream the final natural language answer
+                for await (const chunk of toolResponseStream) {
+                    yield { status: 'final_answer', text: chunk.text };
+                }
+            } else {
+                 yield { status: 'error', text: `Error: The AI called an unsupported tool: ${fc.name}.` };
+            }
+        } else {
+            // If the model replies directly without a tool call
+            yield { status: 'final_answer', text: response.text };
+        }
+    } catch (error: any) {
+        console.error("Error in AI Analyst stream:", error);
+        yield { status: 'error', text: `An error occurred while communicating with the AI: ${error.message}` };
+    }
+}
 
 
 // --- From StructuredDataExplorer.tsx ---
@@ -126,6 +213,7 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
         User Query: "${searchQuery}"
     `;
     
+    await ensureApiRateLimit();
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,

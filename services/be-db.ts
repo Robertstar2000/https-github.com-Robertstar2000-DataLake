@@ -1,4 +1,3 @@
-
 import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import { unstructuredData } from '../data/unstructuredData';
@@ -183,7 +182,7 @@ function populateNewDatabase(db: Database) {
       
       -- App State Tables
       CREATE TABLE mcp_servers ( id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT, type TEXT, description TEXT, is_loaded INTEGER DEFAULT 0 );
-      CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, source TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT );
+      CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, sources TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT, transformerCode TEXT );
       CREATE TABLE dashboards ( id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT );
       CREATE TABLE dashboard_widgets ( id TEXT PRIMARY KEY, dashboard_id TEXT, title TEXT, type TEXT, colSpan INTEGER, sqlQuery TEXT, FOREIGN KEY (dashboard_id) REFERENCES dashboards(id) );
     `);
@@ -213,7 +212,7 @@ function populateNewDatabase(db: Database) {
       db.run('INSERT INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)', [s.id, s.name, s.url, s.type, s.description, s.type === 'Custom' ? 1 : 0]);
     });
     initialWorkflows.forEach(w => {
-      db.run('INSERT INTO workflows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [w.id, w.name, w.lastExecuted, w.status, w.source, w.transformer, w.destination, w.repartition, w.trigger]);
+      db.run('INSERT INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [w.id, w.name, w.lastExecuted, w.status, w.sources.join('|||'), w.transformer, w.destination, w.repartition, w.trigger, w.transformerCode || null]);
     });
 
     // Populate initial dashboard
@@ -377,7 +376,15 @@ export const getDashboardStats = () => {
 
 // --- App State Management Functions ---
 export const getMcpServers = (): McpServer[] => executeQuery("SELECT *, is_loaded as isLoaded FROM mcp_servers").data;
-export const getWorkflows = (): Workflow[] => executeQuery("SELECT * FROM workflows").data;
+
+export const getWorkflows = (): Workflow[] => {
+    const rawWorkflows = executeQuery("SELECT * FROM workflows").data as any[];
+    return rawWorkflows.map(w => ({
+        ...w,
+        sources: w.sources ? String(w.sources).split('|||') : [],
+    }));
+};
+
 export const getLoadedMcpServers = (): McpServer[] => executeQuery("SELECT * FROM mcp_servers WHERE is_loaded = 1").data;
 
 export const saveMcpServer = (server: McpServer, isLoaded: boolean) => {
@@ -385,7 +392,7 @@ export const saveMcpServer = (server: McpServer, isLoaded: boolean) => {
 };
 
 export const saveWorkflow = (workflow: Workflow) => {
-    executeQuery("REPLACE INTO workflows (id, name, lastExecuted, status, source, transformer, destination, repartition, trigger) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [workflow.id, workflow.name, workflow.lastExecuted, workflow.status, workflow.source, workflow.transformer, workflow.destination, workflow.repartition, workflow.trigger]);
+    executeQuery("REPLACE INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [workflow.id, workflow.name, workflow.lastExecuted, workflow.status, workflow.sources.join('|||'), workflow.transformer, workflow.destination, workflow.repartition, workflow.trigger, workflow.transformerCode || null]);
 };
 export const deleteWorkflow = (id: string) => executeQuery("DELETE FROM workflows WHERE id = ?", [id]);
 

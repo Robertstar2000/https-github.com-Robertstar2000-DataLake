@@ -1,7 +1,8 @@
-
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import type { View } from '../App';
+import { getWorkflows, saveWorkflow } from '../services/api';
+import type { Workflow } from '../types';
 
 // Define types for our diagram components
 interface DiagramNode {
@@ -38,9 +39,9 @@ const icons = {
 // Data for the diagram
 const sources: DiagramNode[] = [
   { id: 'db', title: 'Databases', icon: icons.database, description: 'Structured data from transactional systems like ERP, CRM, etc.', targetView: 'mcp-protocol' },
-  { id: 'apis', title: 'External APIs', icon: icons.api, description: 'Data from third-party services and partners.', targetView: 'mcp-protocol' },
+  { id: 'apis', title: 'External APIs (MCPs)', icon: icons.api, description: 'Data from third-party services and partners via Model Content Protocol.', targetView: 'mcp-protocol' },
   { id: 'files', title: 'File Systems', icon: icons.files, description: 'Unstructured or semi-structured data like logs, CSVs, and images.', targetView: 'mcp-protocol' },
-  { id: 'streams', title: 'Event Streams', icon: icons.stream, description: 'Real-time data from IoT devices, applications, and message queues.', targetView: 'mcp-protocol' },
+  { id: 'streams', title: 'Event Streams', icon: icons.stream, description: 'Real-time data from message queues that trigger workflows.', targetView: 'workflow-builder' },
 ];
 
 const consumption: DiagramNode[] = [
@@ -82,7 +83,86 @@ const Node: React.FC<{ node: DiagramNode; onClick: (view: View) => void }> = ({ 
     </div>
 );
 
+const generateDefaultScript = (workflow: Workflow): string => {
+    return `/**
+ * Transformer for: ${workflow.name}
+ * Sources: ${workflow.sources.join(', ')}
+ * Destination: ${workflow.destination}
+ */
+export default function transform(data) {
+  // Add your custom transformation logic here.
+  console.log('Processing data for workflow: ${workflow.name}');
+  
+  const processedData = data.map(record => ({
+    ...record,
+    processed_at: new Date().toISOString(),
+    workflow_id: '${workflow.id}'
+  }));
+
+  return processedData;
+}`;
+};
+
 const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [workflowScripts, setWorkflowScripts] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const loadWorkflows = async () => {
+        setIsLoading(true);
+        try {
+            const fetchedWorkflows = await getWorkflows();
+            setWorkflows(fetchedWorkflows);
+
+            if (fetchedWorkflows.length > 0) {
+                setSelectedWorkflowId(fetchedWorkflows[0].id);
+                const initialScripts = fetchedWorkflows.reduce((acc, wf) => {
+                    if (wf.transformer === 'Custom JavaScript') {
+                        acc[wf.id] = wf.transformerCode || generateDefaultScript(wf);
+                    } else {
+                        acc[wf.id] = `// This workflow uses the '${wf.transformer}' transformer.\n// Code is not editable for this type.`;
+                    }
+                    return acc;
+                }, {} as Record<string, string>);
+                setWorkflowScripts(initialScripts);
+            }
+        } catch (e) {
+            console.error("Failed to load workflows", e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    loadWorkflows();
+  }, []);
+  
+  const handleScriptChange = (workflowId: string, newCode: string) => {
+    // Update UI immediately
+    setWorkflowScripts(prev => ({...prev, [workflowId]: newCode}));
+    
+    // Debounce save operation
+    if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(() => {
+        const workflowToUpdate = workflows.find(wf => wf.id === workflowId);
+        if (workflowToUpdate && workflowToUpdate.transformer === 'Custom JavaScript') {
+            const updatedWorkflow = { ...workflowToUpdate, transformerCode: newCode };
+            saveWorkflow(updatedWorkflow)
+                .then(() => {
+                    // Also update main workflow state to be in sync
+                    setWorkflows(prev => prev.map(wf => wf.id === workflowId ? updatedWorkflow : wf));
+                })
+                .catch(e => console.error("Failed to save script", e));
+        }
+    }, 500); // 500ms debounce
+  }
+
+  const selectedWorkflow = workflows.find(wf => wf.id === selectedWorkflowId);
+
   return (
     <div className="space-y-6 h-full flex flex-col">
       <h1 className="text-3xl font-bold text-white">Interactive Data Flow Architecture</h1>
@@ -92,7 +172,7 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
       
       <div className="flex-grow p-4 md:p-8 rounded-lg bg-slate-900/30 border border-slate-700/50 relative overflow-x-auto">
         {/* Main container for the diagram */}
-        <div className="flex items-center justify-between min-w-[1000px] h-full relative">
+        <div className="flex items-center justify-between min-w-[1200px] h-full relative">
 
             {/* Stage 1: Data Sources */}
             <DiagramCard title="Data Sources" className="w-1/5 h-full !flex flex-col justify-around" onClick={() => setCurrentView('mcp-protocol')}>
@@ -104,10 +184,37 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
             <Arrow />
 
             {/* Stage 2: Processing */}
-            <DiagramCard title="Processing" className="w-1/5 h-3/4" onClick={() => setCurrentView('workflow-builder')}>
-                 <div className="flex items-center justify-center h-full text-slate-300">
-                    <p>Ingestion & ETL/ELT Pipelines</p>
-                </div>
+            <DiagramCard title="Processing Pipeline" className="w-1/3 h-full !flex flex-col" onClick={() => setCurrentView('workflow-builder')}>
+              {isLoading ? <p>Loading workflows...</p> : (
+                <>
+                  <div className="flex-none flex flex-col mb-2">
+                      <label htmlFor="workflow-select" className="text-sm text-slate-400 mb-1 text-left">Selected Workflow:</label>
+                      <select
+                          id="workflow-select"
+                          value={selectedWorkflowId || ''}
+                          onChange={(e) => setSelectedWorkflowId(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+                      >
+                          {workflows.map(wf => <option key={wf.id} value={wf.id}>{wf.name}</option>)}
+                      </select>
+                  </div>
+                  {selectedWorkflow && (
+                      <div className="flex-grow min-h-0">
+                          <textarea
+                              value={workflowScripts[selectedWorkflowId!] || ''}
+                              onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleScriptChange(selectedWorkflowId!, e.target.value);
+                              }}
+                              disabled={selectedWorkflow?.transformer !== 'Custom JavaScript'}
+                              spellCheck="false"
+                              className="w-full h-full bg-slate-900/70 p-2 rounded-md text-left text-xs font-mono text-cyan-300 resize-none focus:ring-1 focus:ring-cyan-500 focus:outline-none disabled:text-slate-500 disabled:cursor-not-allowed"
+                          />
+                      </div>
+                  )}
+                </>
+              )}
             </DiagramCard>
             
             <Arrow />

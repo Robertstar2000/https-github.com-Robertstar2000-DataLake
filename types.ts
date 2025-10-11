@@ -24,8 +24,9 @@ export interface Workflow {
   name: string;
   lastExecuted: string;
   status: WorkflowStatus;
-  source: string;
+  sources: string[];
   transformer: string;
+  transformerCode?: string;
   destination: string;
   repartition: number;
   trigger: string;
@@ -33,7 +34,7 @@ export interface Workflow {
 
 // Types for Model Content Protocol
 export interface McpServer {
-  id: string;
+  id:string;
   name: string;
   url: string;
   type: 'Official' | 'Custom';

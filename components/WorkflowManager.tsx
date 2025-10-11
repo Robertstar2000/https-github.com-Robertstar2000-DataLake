@@ -1,8 +1,7 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import Card from './Card';
-import type { Workflow, WorkflowStatus } from '../types';
-import { executeWorkflow, getWorkflows, saveWorkflow, deleteWorkflow as apiDeleteWorkflow } from '../services/api';
+import type { Workflow, WorkflowStatus, McpServer } from '../types';
+import { executeWorkflow, getWorkflows, saveWorkflow, deleteWorkflow as apiDeleteWorkflow, getLoadedMcpServers } from '../services/api';
 
 const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: string; border: string; }> = {
   Live: { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500', border: 'border-green-500/50' },
@@ -12,10 +11,9 @@ const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: stri
 const STATUSES: WorkflowStatus[] = ['Live', 'Test', 'Hold'];
 
 const SOURCES = ["CRM: HubSpot/RubberTree", "P21: New Picklist", "P21: Work Order", "Customer Portal: Repair Request", "Teams/Email: Customer Issue", "Kafka Topic: new_orders", "Data Lake: p21_sales_orders", "S3 Bucket: raw-logs"];
-const TRANSFORMERS = ["Power Automate: Qualify Lead", "Shop Floor System: Assign & Track", "MES: Track Production Steps", "Service Module: Track Repair Status", "CI Tool: Log & Analyze", "Spark Job: process_order_data.py", "Spark Job: aggregate_sales.py", "None"];
 const DESTINATIONS = ["P21: Sales Order", "P21: Inventory Update", "P21: Finished Goods Inventory", "P21: Service Order & Billing", "P21/POR: Credit Memo or Follow-up", "Data Lake: p21_sales_orders", "Data Lake: daily_sales_metrics", "Redshift Table: dim_products"];
 
-const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, onSave: (wf: Workflow) => void, onCancel: () => void }> = ({ workflow, onSave, onCancel }) => {
+const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, transformerOptions: string[], onSave: (wf: Workflow) => void, onCancel: () => void }> = ({ workflow, transformerOptions, onSave, onCancel }) => {
     const [editedWorkflow, setEditedWorkflow] = useState<Partial<Workflow>>(workflow);
     
     const handleSubmit = (e: React.FormEvent) => {
@@ -27,6 +25,26 @@ const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, onSave: (wf: Workf
         const { name, value } = e.target;
         setEditedWorkflow(prev => ({ ...prev, [name]: name === 'repartition' ? parseInt(value, 10) : value }));
     }
+    
+    const handleSourceChange = (index: number, value: string) => {
+        const newSources = [...(editedWorkflow.sources || [])];
+        newSources[index] = value;
+        setEditedWorkflow(prev => ({ ...prev, sources: newSources }));
+    };
+
+    const handleAddSource = () => {
+        if ((editedWorkflow.sources || []).length < 4) {
+            setEditedWorkflow(prev => ({
+                ...prev,
+                sources: [...(prev.sources || []), SOURCES[0]]
+            }));
+        }
+    };
+
+    const handleRemoveSource = (index: number) => {
+        const newSources = (editedWorkflow.sources || []).filter((_, i) => i !== index);
+        setEditedWorkflow(prev => ({ ...prev, sources: newSources }));
+    };
 
     return (
         <Card>
@@ -48,27 +66,68 @@ const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, onSave: (wf: Workf
 
                 <div className="border-t border-slate-700/50 pt-6 space-y-4">
                      <h3 className="text-lg font-semibold text-cyan-400">Pipeline</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center text-center">
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start text-center">
                          <div>
-                            <label className="block text-slate-400 mb-1">Source</label>
-                            <select name="source" value={editedWorkflow.source || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
-                                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                            <label className="block text-slate-400 mb-1">Source(s)</label>
+                            <div className="space-y-2">
+                                {(editedWorkflow.sources || []).map((source, index) => (
+                                    <div key={index} className="flex items-center gap-2">
+                                        <select
+                                            value={source}
+                                            onChange={(e) => handleSourceChange(index, e.target.value)}
+                                            required
+                                            className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                                        >
+                                            {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                        {(editedWorkflow.sources || []).length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveSource(index)}
+                                                className="w-8 h-8 flex-shrink-0 bg-red-800/80 text-white rounded-lg flex items-center justify-center hover:bg-red-800"
+                                            >
+                                                &times;
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            {(editedWorkflow.sources || []).length < 4 && (
+                                <button
+                                    type="button"
+                                    onClick={handleAddSource}
+                                    className="w-full mt-2 text-sm bg-slate-600 hover:bg-slate-500 text-white font-semibold py-2 rounded-lg"
+                                >
+                                    + Add Source
+                                </button>
+                            )}
                          </div>
-                         <div className="text-slate-500 font-bold text-2xl hidden md:block">→</div>
-                         <div>
+                         <div className="text-slate-500 font-bold text-2xl hidden md:flex items-center justify-center pt-8">→</div>
+                         <div className="pt-7">
                             <label className="block text-slate-400 mb-1">Transformer</label>
                             <select name="transformer" value={editedWorkflow.transformer || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
-                                 {TRANSFORMERS.map(t => <option key={t} value={t}>{t}</option>)}
+                                 {transformerOptions.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                          </div>
-                         <div className="text-slate-500 font-bold text-2xl hidden md:block">→</div>
-                         <div>
+                         <div className="text-slate-500 font-bold text-2xl hidden md:flex items-center justify-center pt-8">→</div>
+                         <div className="pt-7">
                             <label className="block text-slate-400 mb-1">Destination</label>
                             <select name="destination" value={editedWorkflow.destination || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
                                  {DESTINATIONS.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
                          </div>
+                         {editedWorkflow.transformer === 'Custom JavaScript' && (
+                            <div className="md:col-span-3 pt-4">
+                                <label className="block text-slate-400 mb-1 text-left">Transformer Code (JavaScript)</label>
+                                <textarea
+                                    name="transformerCode"
+                                    value={editedWorkflow.transformerCode || '/**\n * @param {any[]} data - The data from the source.\n * @returns {any[]} The transformed data for the destination.\n */\nfunction transform(data) {\n  // Your code here\n  return data;\n}'}
+                                    onChange={handleChange}
+                                    placeholder="function transform(data) { return data; }"
+                                    className="w-full h-48 bg-slate-900 border border-slate-600 rounded-lg p-3 font-mono text-sm text-cyan-300 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-y"
+                                />
+                            </div>
+                        )}
                      </div>
                 </div>
                 
@@ -138,7 +197,7 @@ const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflo
         <h4 className="font-bold text-white mb-2">{workflow.name}</h4>
       </div>
       <div className="text-xs text-slate-400 space-y-2">
-        <p><span className="font-semibold">Source:</span> {workflow.source}</p>
+        <p><span className="font-semibold">Source(s):</span> {workflow.sources[0]}{workflow.sources.length > 1 && ` (+${workflow.sources.length - 1})`}</p>
         <p><span className="font-semibold">Dest:</span> {workflow.destination}</p>
       </div>
       <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-700/50">
@@ -165,13 +224,29 @@ const WorkflowManager: React.FC = () => {
     const [isPipelineRunning, setIsPipelineRunning] = useState(false);
     const [draggedItem, setDraggedItem] = useState<Workflow | null>(null);
     const [dragOverStatus, setDragOverStatus] = useState<WorkflowStatus | null>(null);
+    const [transformerOptions, setTransformerOptions] = useState<string[]>([]);
 
     useEffect(() => {
         getWorkflows().then(setWorkflows);
+        getLoadedMcpServers().then((servers) => {
+            const mcpTransformers = servers.map(s => `MCP: ${s.name}`);
+            const genericTransformers = [
+                "Custom JavaScript",
+                "Spark Job: process_order_data.py", 
+                "Spark Job: aggregate_sales.py",
+                "Power Automate: Qualify Lead", 
+                "Shop Floor System: Assign & Track",
+                "MES: Track Production Steps",
+                "Service Module: Track Repair Status",
+                "CI Tool: Log & Analyze",
+                "None"
+            ];
+            setTransformerOptions([...new Set([...mcpTransformers, ...genericTransformers])].sort());
+        });
     }, []);
 
     const handleCreate = () => {
-        setActiveWorkflow({ name: '', status: 'Test', source: SOURCES[0], transformer: TRANSFORMERS[0], destination: DESTINATIONS[0], trigger: 'On demand', repartition: 8});
+        setActiveWorkflow({ name: '', status: 'Test', sources: [SOURCES[0]], transformer: transformerOptions[0], destination: DESTINATIONS[0], trigger: 'On demand', repartition: 8});
         setMode('create');
     };
 
@@ -247,7 +322,7 @@ const WorkflowManager: React.FC = () => {
     
     const renderContent = () => {
         if (mode === 'edit' || mode === 'create') {
-            return <WorkflowEditor workflow={activeWorkflow!} onSave={handleSave} onCancel={handleCancel} />;
+            return <WorkflowEditor workflow={activeWorkflow!} transformerOptions={transformerOptions} onSave={handleSave} onCancel={handleCancel} />;
         }
 
         if (mode === 'kanban') {
@@ -286,7 +361,7 @@ const WorkflowManager: React.FC = () => {
                             </div>
                             <div className="md:col-span-2">
                                     <div className="flex flex-col space-y-2 text-sm">
-                                    <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Source:</span> <span className="font-mono text-slate-300">{wf.source}</span></div>
+                                    <div className="flex items-start"><span className="font-semibold text-slate-400 w-24 flex-shrink-0">Source(s):</span> <div className="flex flex-col">{wf.sources.map((s, i) => <span key={i} className="font-mono text-slate-300">{s}</span>)}</div></div>
                                     <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Transformer:</span> <span className="font-mono text-slate-300">{wf.transformer}</span></div>
                                     <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Destination:</span> <span className="font-mono text-slate-300">{wf.destination}</span></div>
                                     </div>
