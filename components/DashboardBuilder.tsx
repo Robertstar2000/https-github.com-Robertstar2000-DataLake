@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import type { Dashboard, WidgetConfig, ChartType } from '../types';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { executeQuery } from '../services/db';
+import { executeQuery } from '../services/api';
 
 const LOCAL_STORAGE_KEY = 'app_dashboards';
 
@@ -13,25 +13,17 @@ const initialDashboards: Dashboard[] = [
         name: 'Sales Overview',
         description: 'A high-level look at sales performance and key metrics.',
         widgets: [
-            { id: 'w1', title: 'Total Revenue', type: 'Metric', colSpan: 1, dataKey: 'totalRevenue' },
-            { id: 'w2', title: 'Total Orders', type: 'Metric', colSpan: 1, dataKey: 'totalOrders' },
-            { id: 'w3', title: 'Unique Customers', type: 'Metric', colSpan: 1, dataKey: 'uniqueCustomers' },
-            { id: 'w4', title: 'Avg. Order Value', type: 'Metric', colSpan: 1, dataKey: 'avgOrderValue' },
-            { id: 'w5', title: 'Revenue by Product', type: 'Bar', colSpan: 4, dataKey: 'revenueByProduct' },
-            { id: 'w6', title: 'Orders Over Time', type: 'Line', colSpan: 2, dataKey: 'ordersOverTime' },
-            { id: 'w7', title: 'Top Product Revenue (Pie)', type: 'Pie', colSpan: 2, dataKey: 'revenueByProduct' },
+            { id: 'w1', title: 'Total Revenue', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT SUM(total_amount) as value FROM p21_sales_orders' },
+            { id: 'w2', title: 'Total Orders', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT COUNT(*) as value FROM p21_sales_orders' },
+            { id: 'w3', title: 'Unique Customers', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT COUNT(DISTINCT customer_id) as value FROM p21_customers' },
+            { id: 'w4', title: 'Avg. Order Value', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT AVG(total_amount) as value FROM p21_sales_orders' },
+            { id: 'w5', title: 'Revenue by Product (Top 5)', type: 'Bar', colSpan: 4, sqlQuery: "SELECT i.item_description as name, SUM(ol.quantity * ol.price_per_unit) as value FROM p21_sales_order_lines ol JOIN p21_items i ON ol.item_id = i.item_id GROUP BY i.item_description ORDER BY value DESC LIMIT 5" },
+            { id: 'w6', title: 'Orders Over Time', type: 'Line', colSpan: 2, sqlQuery: 'SELECT order_date as name, COUNT(order_num) as value FROM p21_sales_orders GROUP BY order_date ORDER BY order_date' },
+            { id: 'w7', title: 'Top Product Revenue (Pie)', type: 'Pie', colSpan: 2, sqlQuery: "SELECT i.item_description as name, SUM(ol.quantity * ol.price_per_unit) as value FROM p21_sales_order_lines ol JOIN p21_items i ON ol.item_id = i.item_id GROUP BY i.item_description ORDER BY value DESC LIMIT 5" },
         ]
     }
 ];
 
-const DATA_SOURCES: Record<string, { name: string; compatible: ChartType[] }> = {
-    totalRevenue: { name: 'Total Revenue', compatible: ['Metric'] },
-    totalOrders: { name: 'Total Orders', compatible: ['Metric'] },
-    uniqueCustomers: { name: 'Unique Customers', compatible: ['Metric'] },
-    avgOrderValue: { name: 'Avg. Order Value', compatible: ['Metric'] },
-    revenueByProduct: { name: 'Revenue by Product', compatible: ['Bar', 'Pie'] },
-    ordersOverTime: { name: 'Orders Over Time', compatible: ['Line', 'Bar'] },
-};
 const CHART_TYPES: ChartType[] = ['Metric', 'Bar', 'Line', 'Pie'];
 const COLORS = ['#06b6d4', '#818cf8', '#f87171', '#fbbf24', '#a3e635', '#f472b6'];
 
@@ -45,12 +37,15 @@ const Widget: React.FC<{
 }> = ({ config, data, isEditing, onRemove, onUpdate }) => {
 
     const renderContent = () => {
-        if (!data) return <div className="text-slate-400">Loading data...</div>;
+        if (data && data.error) return <div className="text-red-400 text-xs text-center p-2 break-all">Error: {data.error}</div>;
+        if (data === undefined) return <div className="text-slate-400">Loading data...</div>;
+        if (data === null) return <div className="text-slate-400">No data returned.</div>;
         
         switch (config.type) {
             case 'Metric':
                 return <div className="text-4xl lg:text-5xl font-bold text-white text-center">{data}</div>;
             case 'Bar':
+                if (!Array.isArray(data) || data.length === 0) return <div className="text-slate-400">No data for chart.</div>;
                 return (
                     <ResponsiveContainer width="100%" height={250}>
                         <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
@@ -63,6 +58,7 @@ const Widget: React.FC<{
                     </ResponsiveContainer>
                 );
             case 'Line':
+                if (!Array.isArray(data) || data.length === 0) return <div className="text-slate-400">No data for chart.</div>;
                 return (
                      <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
@@ -75,6 +71,7 @@ const Widget: React.FC<{
                     </ResponsiveContainer>
                 );
              case 'Pie':
+                if (!Array.isArray(data) || data.length === 0) return <div className="text-slate-400">No data for chart.</div>;
                 return (
                     <ResponsiveContainer width="100%" height={250}>
                         <PieChart>
@@ -91,7 +88,7 @@ const Widget: React.FC<{
     };
 
     return (
-        <Card className="flex flex-col relative group">
+        <Card className="flex flex-col relative group h-full">
             <div className="flex justify-between items-start mb-4">
                 <h3 className="text-lg font-semibold text-white">{config.title}</h3>
                 {isEditing && (
@@ -106,7 +103,7 @@ const Widget: React.FC<{
                             <option value={3}>3 col</option>
                             <option value={4}>4 col</option>
                         </select>
-                        <button onClick={onRemove} className="w-6 h-6 bg-red-500/80 text-white rounded-full flex items-center justify-center hover:bg-red-500">&times;</button>
+                        <button onClick={onRemove} aria-label={`Remove ${config.title} widget`} className="w-6 h-6 bg-red-500/80 text-white rounded-full flex items-center justify-center hover:bg-red-500">&times;</button>
                     </div>
                 )}
             </div>
@@ -121,7 +118,7 @@ const DashboardBuilder: React.FC = () => {
     const [activeDashboardId, setActiveDashboardId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isWidgetModalOpen, setIsWidgetModalOpen] = useState(false);
-    const [processedData, setProcessedData] = useState<any>(null);
+    const [widgetData, setWidgetData] = useState<Record<string, any>>({});
     const draggedWidgetId = useRef<string | null>(null);
 
     useEffect(() => {
@@ -147,30 +144,74 @@ const DashboardBuilder: React.FC = () => {
         }
     }, [dashboards]);
     
-    useEffect(() => {
-        const fetchData = () => {
-            const totalRevenueResult = executeQuery('SELECT SUM(p.price * o.quantity) as total FROM orders o JOIN products p ON o.product_id = p.product_id');
-            const totalOrdersResult = executeQuery('SELECT COUNT(*) as count FROM orders');
-            const uniqueCustomersResult = executeQuery('SELECT COUNT(DISTINCT customer_id) as count FROM customers');
-            const revenueByProductResult = executeQuery(`SELECT p.product_name as name, SUM(p.price * o.quantity) as value FROM orders o JOIN products p ON o.product_id = p.product_id GROUP BY p.product_name ORDER BY value DESC`);
-            const ordersOverTimeResult = executeQuery(`SELECT order_date as name, COUNT(order_id) as value FROM orders GROUP BY order_date ORDER BY order_date`);
-            const totalRevenue = totalRevenueResult.data[0]?.total || 0;
-            const totalOrders = totalOrdersResult.data[0]?.count || 0;
-
-            setProcessedData({
-                totalRevenue: `$${totalRevenue.toLocaleString()}`,
-                totalOrders,
-                uniqueCustomers: uniqueCustomersResult.data[0]?.count || 0,
-                avgOrderValue: totalOrders > 0 ? `$${(totalRevenue / totalOrders).toFixed(2)}` : '$0.00',
-                revenueByProduct: revenueByProductResult.data,
-                ordersOverTime: ordersOverTimeResult.data,
-            });
-        };
-        fetchData();
-    }, []);
-
     const activeDashboard = dashboards.find(d => d.id === activeDashboardId);
     
+    useEffect(() => {
+        if (!activeDashboard) {
+            setWidgetData({});
+            return;
+        }
+    
+        const fetchAllWidgetData = async () => {
+            // Set all to loading state initially
+            const initialData = activeDashboard.widgets.reduce((acc, widget) => {
+                acc[widget.id] = undefined; // 'undefined' signifies loading
+                return acc;
+            }, {} as Record<string, any>);
+            setWidgetData(initialData);
+    
+            const dataPromises = activeDashboard.widgets.map(async (widget) => {
+                try {
+                    const result = await executeQuery(widget.sqlQuery);
+                    
+                    // FIX: Use a type guard to check for the 'error' property on the union type.
+                    if ('error' in result) {
+                        console.error(`Error executing query for widget "${widget.title}":`, result.error);
+                        return { id: widget.id, data: { error: result.error } };
+                    }
+                    
+                    if (result.data.length === 0) {
+                        return { id: widget.id, data: widget.type === 'Metric' ? '0' : [] };
+                    }
+    
+                    if (widget.type === 'Metric') {
+                        const rawValue = result.data[0]?.value;
+                        let formattedValue = 'N/A';
+                        if (rawValue === null || rawValue === undefined) {
+                            formattedValue = 'N/A';
+                        } else if (typeof rawValue === 'number') {
+                            if (widget.title.toLowerCase().includes('revenue') || widget.title.toLowerCase().includes('value')) {
+                                formattedValue = `$${rawValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                            } else {
+                                formattedValue = rawValue.toLocaleString();
+                            }
+                        } else {
+                            formattedValue = String(rawValue);
+                        }
+                        return { id: widget.id, data: formattedValue };
+                    } else { // Bar, Line, Pie
+                        return { id: widget.id, data: result.data };
+                    }
+                } catch (e: any) {
+                    console.error(`Error processing widget "${widget.title}":`, e);
+                    return { id: widget.id, data: { error: 'Failed to process data.' } };
+                }
+            });
+    
+            const results = await Promise.all(dataPromises);
+            const newWidgetData = results.reduce((acc, result) => {
+                acc[result.id] = result.data;
+                return acc;
+            }, {} as Record<string, any>);
+            
+            setWidgetData(newWidgetData);
+        };
+    
+        fetchAllWidgetData();
+    
+    }, [activeDashboard]);
+    
+
     const updateActiveDashboard = (updatedDashboard: Dashboard) => {
         setDashboards(dashboards.map(d => d.id === updatedDashboard.id ? updatedDashboard : d));
     }
@@ -309,7 +350,7 @@ const DashboardBuilder: React.FC = () => {
                                     >
                                         <Widget 
                                             config={widget} 
-                                            data={processedData ? processedData[widget.dataKey] : null}
+                                            data={widgetData[widget.id]}
                                             isEditing={isEditing}
                                             onRemove={() => handleRemoveWidget(widget.id)}
                                             onUpdate={(newConfig) => handleUpdateWidget(widget.id, newConfig)}
@@ -345,45 +386,46 @@ const DashboardBuilder: React.FC = () => {
 };
 
 const AddWidgetModal: React.FC<{onClose: ()=>void, onAdd: (config: Omit<WidgetConfig, 'id'>)=>void}> = ({ onClose, onAdd }) => {
-    const [type, setType] = useState<ChartType>('Metric');
-
+    
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
         onAdd({
             title: formData.get('title') as string,
             type: formData.get('type') as ChartType,
-            dataKey: formData.get('dataKey') as string,
+            sqlQuery: formData.get('sqlQuery') as string,
             colSpan: parseInt(formData.get('colSpan') as string, 10) as WidgetConfig['colSpan'],
         });
     }
 
-    const compatibleDataSources = Object.entries(DATA_SOURCES).filter(([, val]) => val.compatible.includes(type));
-    
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
             <Card className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold text-white mb-4">Add New Widget</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-slate-400 mb-1">Title</label>
-                        <input name="title" required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white" />
+                        <label htmlFor="widget-title" className="block text-slate-400 mb-1">Title</label>
+                        <input id="widget-title" name="title" required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white" />
                     </div>
                      <div>
-                        <label className="block text-slate-400 mb-1">Widget Type</label>
-                        <select name="type" value={type} onChange={e => setType(e.target.value as ChartType)} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
+                        <label htmlFor="widget-type" className="block text-slate-400 mb-1">Widget Type</label>
+                        <select id="widget-type" name="type" className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
                             {CHART_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                      <div>
-                        <label className="block text-slate-400 mb-1">Data Source</label>
-                        <select name="dataKey" required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white" disabled={compatibleDataSources.length === 0}>
-                            {compatibleDataSources.length > 0 ? compatibleDataSources.map(([key, val]) => <option key={key} value={key}>{val.name}</option>) : <option>No sources for this type</option>}
-                        </select>
+                        <label htmlFor="widget-sql" className="block text-slate-400 mb-1">SQL Query</label>
+                         <textarea
+                            id="widget-sql"
+                            name="sqlQuery"
+                            required
+                            placeholder={"-- For metrics, alias result as 'value'.\n-- For charts, alias columns as 'name' and 'value'.\nSELECT ..."}
+                            className="w-full h-24 bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 font-mono text-sm text-white placeholder:font-sans placeholder:text-slate-500"
+                        />
                     </div>
                      <div>
-                        <label className="block text-slate-400 mb-1">Width (Columns)</label>
-                        <select name="colSpan" defaultValue={4} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
+                        <label htmlFor="widget-colspan" className="block text-slate-400 mb-1">Width (Columns)</label>
+                        <select id="widget-colspan" name="colSpan" defaultValue={4} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
                             <option value={1}>1</option>
                             <option value={2}>2</option>
                             <option value={3}>3</option>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -7,14 +6,14 @@ import DataExplorer from './components/DataExplorer';
 import AIAnalyst from './components/AIAnalyst';
 import SchemaExplorer from './components/SchemaExplorer';
 import DashboardBuilder from './components/DashboardBuilder';
-import WorkflowBuilder from './components/WorkflowBuilder';
+import WorkflowManager from './components/WorkflowManager';
 import DlControls from './components/DlControls';
 import DbMaintenance from './components/DbMaintenance';
-import PipelineManagement from './components/PipelineManagement';
 import McpProtocol from './components/McpProtocol';
-import { initializeDatabase } from './services/db';
+import IoManagement from './components/IoManagement';
+import { initializeDatabase } from './services/api';
 
-export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'pipeline-management' | 'mcp-protocol';
+export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'mcp-protocol' | 'io-management';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -40,7 +39,7 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard />;
       case 'architecture':
-        return <Architecture />;
+        return <Architecture setCurrentView={setCurrentView} />;
       case 'explorer':
         return <DataExplorer />;
       case 'ai-analyst':
@@ -50,15 +49,15 @@ const App: React.FC = () => {
       case 'dashboard-builder':
         return <DashboardBuilder />;
       case 'workflow-builder':
-        return <WorkflowBuilder />;
+        return <WorkflowManager />;
       case 'dl-controls':
         return <DlControls />;
       case 'db-maintenance':
         return <DbMaintenance />;
-      case 'pipeline-management':
-        return <PipelineManagement />;
       case 'mcp-protocol':
         return <McpProtocol />;
+      case 'io-management':
+        return <IoManagement />;
       default:
         return <Dashboard />;
     }

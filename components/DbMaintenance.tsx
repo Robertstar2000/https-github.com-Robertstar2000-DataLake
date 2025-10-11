@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import {
@@ -7,10 +8,10 @@ import {
   initializeDatabase,
   getVectorStoreStats,
   rebuildVectorStore,
-} from '../services/db';
+} from '../services/api';
 
-type DbStats = ReturnType<typeof getDbStatistics> | null;
-type VectorStats = ReturnType<typeof getVectorStoreStats> | null;
+type DbStats = Awaited<ReturnType<typeof getDbStatistics>> | null;
+type VectorStats = Awaited<ReturnType<typeof getVectorStoreStats>> | null;
 
 const DbMaintenance: React.FC = () => {
   const [dbStats, setDbStats] = useState<DbStats>(null);
@@ -25,16 +26,16 @@ const DbMaintenance: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addLog = (message: string) => {
-    setLogs(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev]);
+    setLogs(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev].slice(0, 100));
   };
 
-  const fetchStats = () => {
+  const fetchStats = async () => {
     try {
-      const sqlStats = getDbStatistics();
+      const sqlStats = await getDbStatistics();
       setDbStats(sqlStats);
       addLog('Fetched latest SQL database statistics.');
 
-      const vecStats = getVectorStoreStats();
+      const vecStats = await getVectorStoreStats();
       setVectorStats(vecStats);
       addLog('Fetched latest vector store statistics.');
     } catch (e: any) {
@@ -46,28 +47,26 @@ const DbMaintenance: React.FC = () => {
     fetchStats();
   }, []);
 
-  const handleBackup = () => {
+  const handleBackup = async () => {
     addLog('Starting database backup...');
     setLoading(prev => ({...prev, backup: true}));
-    setTimeout(() => { // simulate network delay
-        try {
-            const data = exportDb();
-            const blob = new Blob([data], { type: 'application/octet-stream' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `datalake_backup_${new Date().toISOString().slice(0,10)}.db`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-            addLog('Database backup successful.');
-        } catch (e: any) {
-            addLog(`Backup failed: ${e.message}`);
-        } finally {
-            setLoading(prev => ({...prev, backup: false}));
-        }
-    }, 500);
+    try {
+        const data = await exportDb();
+        const blob = new Blob([data], { type: 'application/octet-stream' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `datalake_backup_${new Date().toISOString().slice(0,10)}.db`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        addLog('Database backup successful.');
+    } catch (e: any) {
+        addLog(`Backup failed: ${e.message}`);
+    } finally {
+        setLoading(prev => ({...prev, backup: false}));
+    }
   };
   
   const handleRestoreClick = () => {
@@ -100,36 +99,32 @@ const DbMaintenance: React.FC = () => {
     reader.readAsArrayBuffer(file);
   };
 
-  const handleMaintenance = () => {
+  const handleMaintenance = async () => {
       addLog('Running database maintenance (VACUUM)...');
       setLoading(prev => ({...prev, maintenance: true}));
-      setTimeout(() => { // simulate work
-        try {
-            const result = runMaintenance();
-            addLog(result.message);
-            if(result.success) fetchStats(); // Refresh stats after maintenance
-        } catch (e: any) {
-            addLog(`Maintenance failed: ${e.message}`);
-        } finally {
-            setLoading(prev => ({...prev, maintenance: false}));
-        }
-      }, 500);
+      try {
+          const result = await runMaintenance();
+          addLog(result.message);
+          if(result.success) await fetchStats(); // Refresh stats after maintenance
+      } catch (e: any) {
+          addLog(`Maintenance failed: ${e.message}`);
+      } finally {
+          setLoading(prev => ({...prev, maintenance: false}));
+      }
   };
 
-  const handleRebuildIndex = () => {
+  const handleRebuildIndex = async () => {
       addLog('Rebuilding vector store index...');
       setLoading(prev => ({...prev, rebuild: true}));
-      setTimeout(() => { // simulate work
-        try {
-          rebuildVectorStore();
-          addLog('Vector store index rebuilt successfully.');
-          fetchStats(); // Refresh stats
-        } catch(e: any) {
-          addLog(`Error rebuilding index: ${e.message}`);
-        } finally {
-          setLoading(prev => ({...prev, rebuild: false}));
-        }
-      }, 500);
+      try {
+        await rebuildVectorStore();
+        addLog('Vector store index rebuilt successfully.');
+        await fetchStats(); // Refresh stats
+      } catch(e: any) {
+        addLog(`Error rebuilding index: ${e.message}`);
+      } finally {
+        setLoading(prev => ({...prev, rebuild: false}));
+      }
   };
 
   const StatItem: React.FC<{label: string, value: React.ReactNode}> = ({label, value}) => (
@@ -148,10 +143,12 @@ const DbMaintenance: React.FC = () => {
         <div className="space-y-6">
           <Card>
               <h2 className="text-xl font-bold text-white mb-4">SQL Database Management</h2>
-              <div className="space-y-2 mb-4">
-                  <StatItem label="Customers Table Rows" value={dbStats?.customerCount ?? '...'} />
-                  <StatItem label="Products Table Rows" value={dbStats?.productCount ?? '...'} />
-                  <StatItem label="Orders Table Rows" value={dbStats?.orderCount ?? '...'} />
+              <div className="space-y-2 mb-4 max-h-60 overflow-y-auto pr-2">
+                  {dbStats?.tableCounts ? (
+                    Object.entries(dbStats.tableCounts).map(([table, count]) => (
+                      <StatItem key={table} label={`${table} Rows`} value={count} />
+                    ))
+                  ) : <StatItem label="Rows" value={'...'} /> }
                   <StatItem label="Database Size" value={dbStats ? `${(dbStats.dbSizeBytes / 1024).toFixed(2)} KB` : '...'} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">

@@ -1,9 +1,7 @@
-import React, { useState, useRef } from 'react';
-import Card from './Card';
-import { getTableSchemas } from '../services/db';
-import { GoogleGenAI, Chat } from "@google/genai";
 
-const API_KEY = process.env.API_KEY;
+import React, { useState, useRef, useEffect } from 'react';
+import Card from './Card';
+import { initializeAiAnalyst, getAiAnalystResponseStream } from '../services/api';
 
 const Loader: React.FC = () => (
   <div className="flex items-center space-x-2">
@@ -17,11 +15,12 @@ const Loader: React.FC = () => (
 const AIAnalyst: React.FC = () => {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [response, setResponse] = useState('');
+  const [history, setHistory] = useState<Array<{role: 'user' | 'model', parts: string}>>([]);
   const [error, setError] = useState('');
   const [isSchemaAnalyzed, setIsSchemaAnalyzed] = useState(false);
+  const [schemaDisplay, setSchemaDisplay] = useState('');
   
-  const chatRef = useRef<Chat | null>(null);
+  const chatInitialized = useRef(false);
 
   const exampleQueries = [
     "Which customer has spent the most money?",
@@ -30,37 +29,15 @@ const AIAnalyst: React.FC = () => {
     "List all orders for 'Alice Johnson'.",
   ];
 
-  const handleAnalyzeSchema = () => {
+  const handleAnalyzeSchema = async () => {
     setIsLoading(true);
     setError('');
-    setResponse('');
+    setHistory([]);
     
     try {
-      if (!API_KEY) {
-        throw new Error("API_KEY environment variable not set.");
-      }
-
-      const schemas = getTableSchemas();
-      
-      const displaySchema = Object.entries(schemas)
-        .map(([table, cols]) => `Table **${table}**:\n${cols.split(', ').map(c => `  - \`${c}\``).join('\n')}`)
-        .join('\n\n');
-        
-      const contextSchema = Object.entries(schemas)
-        .map(([table, cols]) => `Table "${table}" has columns: ${cols}`)
-        .join('\n');
-      
-      const ai = new GoogleGenAI({ apiKey: API_KEY });
-      const systemInstruction = `You are an expert data analyst for an e-commerce company. Your task is to answer questions based on the provided SQL table schemas. Be concise and clear in your answers. If the question cannot be answered from the schemas, state that clearly. Analyze the relationships between customers, products, and orders to provide insightful answers. Do not attempt to run or generate SQL. Here are the table schemas: ${contextSchema}`;
-
-      chatRef.current = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: {
-          systemInstruction: systemInstruction
-        },
-      });
-      
-      setResponse(`I have analyzed the following table schemas and am ready for your questions:\n\n${displaySchema}`);
+      const { displaySchema } = await initializeAiAnalyst();
+      setSchemaDisplay(`I have analyzed the following table schemas and am ready for your questions:\n\n${displaySchema}`);
+      chatInitialized.current = true;
       setIsSchemaAnalyzed(true);
     } catch (err: any) {
       const userFriendlyError = "An unexpected error occurred while analyzing the database schema. Please check the console for details or try again later.";
@@ -73,34 +50,54 @@ const AIAnalyst: React.FC = () => {
 
   const handleQuerySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim() || !chatRef.current) {
-        if(!chatRef.current) setError("Please analyze the schema first.");
+    if (!query.trim() || !chatInitialized.current) {
+        if(!chatInitialized.current) setError("Please analyze the schema first.");
         return;
     };
 
     setIsLoading(true);
     setError('');
-    setResponse('');
+
+    const userQuery = query;
+    setQuery('');
+    setHistory(prev => [...prev, { role: 'user', parts: userQuery }]);
     
     try {
-      const stream = await chatRef.current.sendMessageStream({ message: query });
+      const stream = await getAiAnalystResponseStream(userQuery);
+      
       let text = '';
+      setHistory(prev => [...prev, {role: 'model', parts: ''}]); // Add empty model response
+
       for await (const chunk of stream) {
         text += chunk.text;
-        setResponse(text);
+        setHistory(prev => {
+            const newHistory = [...prev];
+            newHistory[newHistory.length - 1].parts = text;
+            return newHistory;
+        });
       }
     } catch (err: any) {
       setError('Failed to get response from AI Analyst: ' + err.message);
       console.error(err);
     } finally {
       setIsLoading(false);
-      setQuery('');
     }
   };
   
   const handleExampleClick = (exampleQuery: string) => {
       setQuery(exampleQuery);
   }
+
+  const renderResponse = (content: string) => {
+      return content.split('\n').map((line, i) => {
+          // Basic markdown for bold and lists
+          line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          if (line.trim().startsWith('- ')) {
+              return <li key={i} className="ml-4 list-disc">{line.substring(2)}</li>;
+          }
+          return <p key={i}>{line}</p>;
+      });
+  };
 
   return (
     <div className="space-y-6 flex flex-col h-full">
@@ -123,16 +120,32 @@ const AIAnalyst: React.FC = () => {
       )}
 
       <Card className="flex-grow flex flex-col">
-        <div className="flex-grow overflow-y-auto pr-2">
-          {response && (
-            <div className="p-4 bg-slate-900/50 rounded-lg">
-                <h3 className="font-semibold text-cyan-400 mb-2">AI Analyst Response:</h3>
-                <div className="prose prose-invert prose-p:text-slate-300 whitespace-pre-wrap">{response}{isLoading && '...'}</div>
+        <div className="flex-grow overflow-y-auto pr-2 space-y-4">
+          {schemaDisplay && !history.length && (
+               <div className="p-4 bg-slate-900/50 rounded-lg">
+                <h3 className="font-semibold text-cyan-400 mb-2">AI Analyst Ready:</h3>
+                <div className="prose prose-invert prose-p:text-slate-300 whitespace-pre-wrap">{schemaDisplay}</div>
+              </div>
+          )}
+          {history.map((msg, index) => (
+             <div key={index} className={`p-4 rounded-lg ${msg.role === 'user' ? 'bg-cyan-900/50' : 'bg-slate-900/50'}`}>
+                <h3 className="font-semibold mb-2 capitalize">{msg.role === 'model' ? <span className="text-cyan-400">AI Analyst</span> : 'You'}</h3>
+                <div className="prose prose-invert prose-p:text-slate-300 prose-strong:text-white whitespace-pre-wrap">{renderResponse(msg.parts)}</div>
+            </div>
+          ))}
+          {isLoading && <Loader />}
+          {error && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-3">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <h3 className="font-semibold text-red-300">An Error Occurred</h3>
+                <p className="text-red-400 text-sm">{error}</p>
+              </div>
             </div>
           )}
-          {isLoading && !response && <Loader />}
-          {error && <p className="text-red-400 p-4">{error}</p>}
-           {!isSchemaAnalyzed && !isLoading && !response && !error && (
+           {!isSchemaAnalyzed && !isLoading && !history.length && !error && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-slate-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4M4 7l8 5 8-5" /></svg>
                   <p className="text-slate-400 mb-4">Click the button below to provide the AI with your table schemas as context.</p>

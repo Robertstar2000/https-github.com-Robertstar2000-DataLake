@@ -1,23 +1,3 @@
-export interface Customer {
-  customer_id: number;
-  customer_name: string;
-  email: string;
-}
-
-export interface Product {
-  product_id: number;
-  product_name: string;
-  price: number;
-}
-
-export interface Order {
-  order_id: number;
-  customer_id: number;
-  product_id: number;
-  order_date: string;
-  quantity: number;
-}
-
 // Types for Dashboard Builder
 export type ChartType = 'Metric' | 'Bar' | 'Line' | 'Pie';
 
@@ -26,7 +6,7 @@ export interface WidgetConfig {
   title: string;
   type: ChartType;
   colSpan: 1 | 2 | 3 | 4;
-  dataKey: string;
+  sqlQuery: string;
 }
 
 export interface Dashboard {
@@ -49,20 +29,6 @@ export interface Workflow {
   destination: string;
   repartition: number;
   trigger: string;
-}
-
-// Types for Pipeline Management
-export type PipelineStatus = 'Healthy' | 'Failing' | 'Paused';
-export type PipelineStage = 'Design' | 'Testing' | 'Production';
-
-export interface Pipeline {
-  id: string;
-  name: string;
-  stage: PipelineStage;
-  source: string;
-  destination: string;
-  lastRun: string;
-  status: PipelineStatus;
 }
 
 // Types for Model Content Protocol

@@ -1,7 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
 import Card from './Card';
-import { initialPipelines } from '../data/pipelines';
+import { initialWorkflows } from '../data/workflows';
+import type { WorkflowStatus } from '../types';
 
 type Role = 'Admin' | 'Analyst' | 'Viewer';
 
@@ -69,12 +69,12 @@ const DlControls: React.FC = () => {
       setTimeout(() => setOptimizing(false), 1500);
   }
 
-  const pipelineStatusCounts = useMemo(() => {
-    return initialPipelines.reduce((acc, pipeline) => {
-      acc[pipeline.status] = (acc[pipeline.status] || 0) + 1;
+  const workflowStatusCounts = useMemo(() => {
+    return initialWorkflows.reduce((acc, workflow) => {
+      acc[workflow.status] = (acc[workflow.status] || 0) + 1;
       return acc;
-    }, {} as Record<string, number>);
-  }, [initialPipelines]);
+    }, {} as Record<WorkflowStatus, number>);
+  }, [initialWorkflows]);
 
   const totalCost = Object.values(mockCosts).reduce((sum, cost) => sum + cost, 0);
 
@@ -125,20 +125,20 @@ const DlControls: React.FC = () => {
 
         {/* Pipeline Oversight */}
         <Card>
-            <h2 className="text-xl font-bold text-white mb-4">Pipeline Oversight</h2>
-            <p className="text-sm text-slate-400 mb-4">A high-level overview of all data pipelines across the system.</p>
+            <h2 className="text-xl font-bold text-white mb-4">Workflow Oversight</h2>
+            <p className="text-sm text-slate-400 mb-4">A high-level overview of all data workflows across the system.</p>
             <div className="flex justify-around text-center">
                 <div>
-                    <p className="text-4xl font-bold text-green-400">{pipelineStatusCounts.Healthy || 0}</p>
-                    <p className="text-slate-400">Healthy</p>
+                    <p className="text-4xl font-bold text-green-400">{workflowStatusCounts.Live || 0}</p>
+                    <p className="text-slate-400">Live</p>
                 </div>
                  <div>
-                    <p className="text-4xl font-bold text-red-400">{pipelineStatusCounts.Failing || 0}</p>
-                    <p className="text-slate-400">Failing</p>
+                    <p className="text-4xl font-bold text-blue-400">{workflowStatusCounts.Test || 0}</p>
+                    <p className="text-slate-400">Test</p>
                 </div>
                  <div>
-                    <p className="text-4xl font-bold text-slate-500">{pipelineStatusCounts.Paused || 0}</p>
-                    <p className="text-slate-400">Paused</p>
+                    <p className="text-4xl font-bold text-yellow-400">{workflowStatusCounts.Hold || 0}</p>
+                    <p className="text-slate-400">On Hold</p>
                 </div>
             </div>
             <p className="text-xs text-center mt-4 text-slate-500">

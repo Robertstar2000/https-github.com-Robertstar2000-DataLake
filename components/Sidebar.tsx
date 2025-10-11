@@ -14,10 +14,21 @@ const NavItem: React.FC<{
   children: React.ReactNode;
 }> = ({ viewName, label, currentView, setCurrentView, children }) => {
   const isActive = currentView === viewName;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      setCurrentView(viewName);
+    }
+  };
+
   return (
     <li
       onClick={() => setCurrentView(viewName)}
-      className={`flex items-center p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 ${
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-label={`Navigate to ${label}`}
+      aria-current={isActive ? 'page' : undefined}
+      className={`flex items-center p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
         isActive
           ? 'bg-cyan-500/20 text-cyan-400'
           : 'hover:bg-slate-700/50 text-slate-400 hover:text-slate-200'
@@ -42,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
       </div>
       <nav>
         <ul>
-          <NavItem viewName="dashboard" label="Dashboard" currentView={currentView} setCurrentView={setCurrentView}>
+          <NavItem viewName="dashboard" label="Hub Status Board" currentView={currentView} setCurrentView={setCurrentView}>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
           </NavItem>
           <NavItem viewName="architecture" label="Architecture" currentView={currentView} setCurrentView={setCurrentView}>
@@ -61,17 +72,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
           <NavItem viewName="dashboard-builder" label="Dashboard Builder" currentView={currentView} setCurrentView={setCurrentView}>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h4.5M12 3v13.5" /></svg>
           </NavItem>
-          <NavItem viewName="workflow-builder" label="Workflow Builder" currentView={currentView} setCurrentView={setCurrentView}>
+          <NavItem viewName="workflow-builder" label="Workflow Manager" currentView={currentView} setCurrentView={setCurrentView}>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>
-          </NavItem>
-          <NavItem viewName="pipeline-management" label="Pipeline Management" currentView={currentView} setCurrentView={setCurrentView}>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
-            </svg>
           </NavItem>
           <NavItem viewName="mcp-protocol" label="MCP" currentView={currentView} setCurrentView={setCurrentView}>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z" />
+            </svg>
+          </NavItem>
+           <NavItem viewName="io-management" label="I/O Management" currentView={currentView} setCurrentView={setCurrentView}>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
             </svg>
           </NavItem>
           <NavItem viewName="dl-controls" label="DL Controls" currentView={currentView} setCurrentView={setCurrentView}>

@@ -1,56 +1,41 @@
+
 import type { McpServer } from '../types';
 
-// The type is now corrected to include 'description'.
-// The data objects contain a description, and the downstream component requires it.
+// The data for the MCP server library has been updated as per the new specifications.
 export const initialMcpServers: { name: string; url: string; description: string; }[] = [
     {
-        name: 'Hugging Face Hub',
-        url: 'https://huggingface.co',
-        description: 'Access thousands of pretrained models for NLP, Computer Vision, and more.',
+        name: 'Microsoft Graph (Teams)',
+        url: 'github.com/floriscornel/teams-mcp',
+        description: 'Supports messaging, reading channels, and user management. Includes a Python-based server for deep integration.',
     },
     {
-        name: 'AWS SageMaker Model Registry',
-        url: 'https://aws.amazon.com/sagemaker/model-registry/',
-        description: 'Catalog models for production, manage model versions, and associate metadata.',
+        name: 'Google Drive / Workspace',
+        url: 'github.com/isaacphi/mcp-gdrive',
+        description: 'Comprehensive server for Google Workspace, integrating Drive, Calendar, Gmail, Docs, Sheets, and more.',
     },
     {
-        name: 'Google Vertex AI Model Garden',
-        url: 'https://cloud.google.com/vertex-ai/docs/start/explore-models',
-        description: 'Discover, test, and deploy Google and select open source models.',
+        name: 'Microsoft 365 (OneDrive)',
+        url: 'Bundled Connector',
+        description: 'Provides a "Files / Docs / Office" MCP server bundled inside a broader Microsoft 365 MCP connector.',
     },
     {
-        name: 'Azure ML Model Registry',
-        url: 'https://azure.microsoft.com/en-us/products/machine-learning/',
-        description: 'Track ML models in the Azure Machine Learning registry for organization and auditing.',
+        name: 'Stack Overflow for Teams',
+        url: 'Stack Overflow Enterprise',
+        description: 'Makes enterprise knowledge Q&A content available to MCP agents and other services.',
     },
     {
-        name: 'Databricks Unity Catalog',
-        url: 'https://www.databricks.com/product/unity-catalog',
-        description: 'Unified governance for data and AI assets on the Databricks Lakehouse Platform.',
+        name: 'Slack',
+        url: 'Various (See MCP Directories)',
+        description: 'Multiple MCP servers exist in public directories for integrating with Slack workspaces.',
     },
-    {
-        name: 'Cohere Models',
-        url: 'https://cohere.com/',
-        description: 'Access powerful large language models for generation, summarization, and more.',
-    },
-    {
-        name: 'OpenAI Models',
-        url: 'https://openai.com/',
-        description: 'Connect to state-of-the-art models like GPT-4 for a wide range of tasks.',
-    },
-    {
-        name: 'Anthropic Models',
-        url: 'https://www.anthropic.com/',
-        description: 'Access Claude family of models for helpful, harmless, and honest AI systems.',
-    },
-    {
-        name: 'Mistral AI Models',
-        url: 'https://mistral.ai/',
-        description: 'Access high-performance open-source and commercial language models.',
-    },
-    {
-        name: 'Localhost (Ollama)',
-        url: 'http://localhost:11434',
-        description: 'Connect to a local model server, such as one running via Ollama.',
-    },
+];
+
+// Pre-load custom, mock MCPs as per the user request
+export const initialCustomServers: McpServer[] = [
+    { id: 'custom-1', name: 'Epicore P21', url: 'mcp://p21.internal:8080', description: 'ERP data interface for orders and inventory.', type: 'Custom' },
+    { id: 'custom-2', name: 'Point of Rental (POR)', url: 'mcp://por.internal:8080', description: 'Rental management system data.', type: 'Custom' },
+    { id: 'custom-3', name: 'Rubbergoods Tests', url: 'mcp://qc-rubber.internal', description: 'Quality control data from rubber goods testing.', type: 'Custom' },
+    { id: 'custom-4', name: 'Fiberglass Tests', url: 'mcp://qc-fiberglass.internal', description: 'Quality control data from fiberglass testing.', type: 'Custom' },
+    { id: 'custom-5', name: 'Swivel Tests', url: 'mcp://qc-swivel.internal', description: 'Quality control data from swivel joint testing.', type: 'Custom' },
+    { id: 'custom-6', name: 'WordPress Interface', url: 'mcp://cms.internal/wp-json', description: 'Content management system interface.', type: 'Custom' },
 ];

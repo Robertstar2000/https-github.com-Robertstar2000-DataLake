@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import Card from './Card';
-import { initialMcpServers } from '../data/mcpServers';
+import { initialMcpServers, initialCustomServers } from '../data/mcpServers';
 import type { McpServer } from '../types';
 
 // Let's create unique IDs for the library servers
@@ -11,7 +12,7 @@ const libraryServers: McpServer[] = initialMcpServers.map((s, i) => ({
 }));
 
 const McpProtocol: React.FC = () => {
-    const [installedServers, setInstalledServers] = useState<McpServer[]>([]);
+    const [installedServers, setInstalledServers] = useState<McpServer[]>(initialCustomServers);
     const [newServerName, setNewServerName] = useState('');
     const [newServerUrl, setNewServerUrl] = useState('');
 
@@ -48,7 +49,7 @@ const McpProtocol: React.FC = () => {
         <div className="space-y-6">
             <h1 className="text-3xl font-bold text-white">Model Content Protocol (MCP)</h1>
             <p className="text-slate-400 max-w-3xl">
-                Manage connections to your model libraries and servers. Load servers from the official library or add your own custom endpoints to integrate them into your data lake workflows.
+                MCPs are the interfaces for all inputs and outputs. Manage connections to your model libraries, data sources, and application servers. Load servers from the official library or add your own custom endpoints to integrate them into your data lake workflows.
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

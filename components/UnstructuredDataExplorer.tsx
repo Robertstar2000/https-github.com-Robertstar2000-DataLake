@@ -2,8 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { unstructuredData } from '../data/unstructuredData';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-import { processUnstructuredData } from '../services/geminiService';
-import { findSimilarDocuments } from '../services/db';
+import { processUnstructuredData, findSimilarDocuments } from '../services/api';
 
 
 const Loader: React.FC = () => (
@@ -14,20 +13,43 @@ const Loader: React.FC = () => (
     </div>
   );
 
+const SimilarDocsSkeleton: React.FC = () => (
+    <div className="grid grid-cols-3 gap-2">
+        {[...Array(3)].map((_, i) => (
+            <div key={i} className="p-2 bg-slate-700 rounded-md animate-pulse">
+                <div className="h-3 bg-slate-600 rounded w-full mb-1"></div>
+                <div className="h-2 bg-slate-600 rounded w-1/2"></div>
+            </div>
+        ))}
+    </div>
+);
+
 const UnstructuredDataExplorer: React.FC = () => {
     const [selectedDoc, setSelectedDoc] = useState<UnstructuredDocument | null>(unstructuredData[0]);
     const [similarDocs, setSimilarDocs] = useState<UnstructuredDocument[]>([]);
+    const [isSimilarLoading, setIsSimilarLoading] = useState(false);
     const [query, setQuery] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [chatHistory, setChatHistory] = useState<Array<{ type: 'user' | 'ai', content: string }>>([]);
     
     useEffect(() => {
-        if (selectedDoc) {
-            const similar = findSimilarDocuments(selectedDoc.id);
-            setSimilarDocs(similar);
-        } else {
-            setSimilarDocs([]);
-        }
+        const getSimilarDocs = async () => {
+            if (selectedDoc) {
+                setIsSimilarLoading(true);
+                try {
+                    const similar = await findSimilarDocuments(selectedDoc.id);
+                    setSimilarDocs(similar);
+                } catch (e) {
+                    console.error("Failed to find similar documents", e);
+                    setSimilarDocs([]);
+                } finally {
+                    setIsSimilarLoading(false);
+                }
+            } else {
+                setSimilarDocs([]);
+            }
+        };
+        getSimilarDocs();
     }, [selectedDoc]);
 
     const handleQuerySubmit = async (e: React.FormEvent) => {
@@ -122,7 +144,7 @@ const UnstructuredDataExplorer: React.FC = () => {
                  <div className="flex-none p-4 border-t border-slate-700">
                      <div className="mb-4">
                         <h4 className="text-md font-semibold text-white mb-2">Similar Documents</h4>
-                        {similarDocs.length > 0 ? (
+                        {isSimilarLoading ? <SimilarDocsSkeleton /> : similarDocs.length > 0 ? (
                             <div className="grid grid-cols-3 gap-2">
                                 {similarDocs.map(doc => (
                                      <button key={doc.id} onClick={() => { setSelectedDoc(doc); setChatHistory([]); }} className="p-2 text-xs bg-slate-700 rounded-md text-left text-slate-300 hover:bg-slate-600 transition-colors">
