@@ -1,7 +1,8 @@
 export interface UnstructuredDocument {
   id: string;
   name: string;
-  type: 'Product Review' | 'Support Ticket' | 'Meeting Notes';
+  // FIX: Changed type to string to allow for dynamic types like 'SQL Record: ...'
+  type: string;
   content: string;
 }
 

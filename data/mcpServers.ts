@@ -19,6 +19,11 @@ export const initialMcpServers: { name: string; url: string; description: string
         description: 'Provides a "Files / Docs / Office" MCP server bundled inside a broader Microsoft 365 MCP connector.',
     },
     {
+        name: 'Microsoft Power BI',
+        url: 'Bundled Connector',
+        description: 'Enables data lake content to be surfaced as a Power BI dataset for enterprise reporting and dashboards.',
+    },
+    {
         name: 'Stack Overflow for Teams',
         url: 'Stack Overflow Enterprise',
         description: 'Makes enterprise knowledge Q&A content available to MCP agents and other services.',

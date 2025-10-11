@@ -15,7 +15,7 @@ const DataTable = ({ headers, data }: { headers: string[], data: any[] }) => {
         <tbody className="divide-y divide-slate-700">
           {data.map((row, rowIndex) => (
             <tr key={rowIndex} className="hover:bg-slate-800/50">
-              {headers.map(header => <td key={`${rowIndex}-${header}`} className="p-3 font-mono text-sm">{String(row[header])}</td>)}
+              {headers.map(header => <td key={`${rowIndex}-${header}`} className="p-3 font-mono text-sm text-green-300">{String(row[header])}</td>)}
             </tr>
           ))}
         </tbody>

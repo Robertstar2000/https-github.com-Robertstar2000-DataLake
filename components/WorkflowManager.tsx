@@ -1,8 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import Card from './Card';
 import type { Workflow, WorkflowStatus } from '../types';
-import { executeWorkflow } from '../services/api';
-import { initialWorkflows } from '../data/workflows';
+import { executeWorkflow, getWorkflows, saveWorkflow, deleteWorkflow as apiDeleteWorkflow } from '../services/api';
 
 const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: string; border: string; }> = {
   Live: { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500', border: 'border-green-500/50' },
@@ -11,12 +11,10 @@ const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: stri
 };
 const STATUSES: WorkflowStatus[] = ['Live', 'Test', 'Hold'];
 
-// Mock data for form dropdowns
 const SOURCES = ["CRM: HubSpot/RubberTree", "P21: New Picklist", "P21: Work Order", "Customer Portal: Repair Request", "Teams/Email: Customer Issue", "Kafka Topic: new_orders", "Data Lake: p21_sales_orders", "S3 Bucket: raw-logs"];
 const TRANSFORMERS = ["Power Automate: Qualify Lead", "Shop Floor System: Assign & Track", "MES: Track Production Steps", "Service Module: Track Repair Status", "CI Tool: Log & Analyze", "Spark Job: process_order_data.py", "Spark Job: aggregate_sales.py", "None"];
 const DESTINATIONS = ["P21: Sales Order", "P21: Inventory Update", "P21: Finished Goods Inventory", "P21: Service Order & Billing", "P21/POR: Credit Memo or Follow-up", "Data Lake: p21_sales_orders", "Data Lake: daily_sales_metrics", "Redshift Table: dim_products"];
 
-// Reusable components from the two old files
 const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, onSave: (wf: Workflow) => void, onCancel: () => void }> = ({ workflow, onSave, onCancel }) => {
     const [editedWorkflow, setEditedWorkflow] = useState<Partial<Workflow>>(workflow);
     
@@ -158,18 +156,19 @@ const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflo
   );
 };
 
-// Main component combining both views
 const WorkflowManager: React.FC = () => {
-    const [workflows, setWorkflows] = useState<Workflow[]>(initialWorkflows);
+    const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [mode, setMode] = useState<'list' | 'kanban' | 'edit' | 'create'>('list');
     const [activeWorkflow, setActiveWorkflow] = useState<Partial<Workflow> | null>(null);
     const [runningWorkflow, setRunningWorkflow] = useState<Workflow | null>(null);
     const [executionLogs, setExecutionLogs] = useState<string[]>([]);
     const [isPipelineRunning, setIsPipelineRunning] = useState(false);
-
-    // Drag and drop state from PipelineManagement
     const [draggedItem, setDraggedItem] = useState<Workflow | null>(null);
     const [dragOverStatus, setDragOverStatus] = useState<WorkflowStatus | null>(null);
+
+    useEffect(() => {
+        getWorkflows().then(setWorkflows);
+    }, []);
 
     const handleCreate = () => {
         setActiveWorkflow({ name: '', status: 'Test', source: SOURCES[0], transformer: TRANSFORMERS[0], destination: DESTINATIONS[0], trigger: 'On demand', repartition: 8});
@@ -181,20 +180,26 @@ const WorkflowManager: React.FC = () => {
         setMode('edit');
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (window.confirm('Are you sure you want to delete this workflow?')) {
+            await apiDeleteWorkflow(id);
             setWorkflows(workflows.filter(wf => wf.id !== id));
         }
     };
 
-    const handleSave = (workflowToSave: Workflow) => {
+    const handleSave = async (workflowToSave: Workflow) => {
+        let updatedWorkflows;
         if (workflowToSave.id) {
-            setWorkflows(workflows.map(wf => wf.id === workflowToSave.id ? workflowToSave : wf));
+            updatedWorkflows = workflows.map(wf => wf.id === workflowToSave.id ? workflowToSave : wf);
         } else {
             const newWorkflow = { ...workflowToSave, id: `wf-${Date.now()}`, lastExecuted: 'Never' };
-            setWorkflows([...workflows, newWorkflow]);
+            workflowToSave = newWorkflow; // update to save the one with ID
+            updatedWorkflows = [...workflows, newWorkflow];
         }
-        setMode(mode === 'kanban' || mode === 'list' ? mode : 'list'); // Return to the view you were on
+        setWorkflows(updatedWorkflows);
+        await saveWorkflow(workflowToSave);
+
+        setMode(mode === 'kanban' || mode === 'list' ? mode : 'list');
         setActiveWorkflow(null);
     };
 
@@ -216,36 +221,30 @@ const WorkflowManager: React.FC = () => {
 
         if (success) {
             const updatedTime = new Date().toLocaleString('en-CA', { hour12: false }).replace(',', '');
-            setWorkflows(prev => prev.map(wf => wf.id === workflowToRun.id ? { ...wf, lastExecuted: updatedTime } : wf));
+            const updatedWorkflow = { ...workflowToRun, lastExecuted: updatedTime };
+            await saveWorkflow(updatedWorkflow);
+            setWorkflows(prev => prev.map(wf => wf.id === workflowToRun.id ? updatedWorkflow : wf));
         }
         setIsPipelineRunning(false);
     };
 
-    // Drag and drop handlers from PipelineManagement
-    const handleDragStart = (workflow: Workflow) => {
-        setDraggedItem(workflow);
-    };
+    const handleDragStart = (workflow: Workflow) => setDraggedItem(workflow);
     
-    const handleDrop = (targetStatus: WorkflowStatus) => {
+    const handleDrop = async (targetStatus: WorkflowStatus) => {
         if (!draggedItem) return;
-        setWorkflows(workflows.map(p => 
-            p.id === draggedItem.id ? { ...p, status: targetStatus } : p
-        ));
+        const updatedWorkflow = { ...draggedItem, status: targetStatus };
+        setWorkflows(workflows.map(p => p.id === draggedItem.id ? updatedWorkflow : p));
+        await saveWorkflow(updatedWorkflow);
         setDraggedItem(null);
         setDragOverStatus(null);
     };
     
     const handleDragEnter = (status: WorkflowStatus) => {
-        if (draggedItem && draggedItem.status !== status) {
-            setDragOverStatus(status);
-        }
+        if (draggedItem && draggedItem.status !== status) setDragOverStatus(status);
     };
-
-    const handleDragLeave = () => {
-        setDragOverStatus(null);
-    }
     
-    // Main render logic
+    const handleDragLeave = () => setDragOverStatus(null);
+    
     const renderContent = () => {
         if (mode === 'edit' || mode === 'create') {
             return <WorkflowEditor workflow={activeWorkflow!} onSave={handleSave} onCancel={handleCancel} />;
@@ -273,7 +272,6 @@ const WorkflowManager: React.FC = () => {
             );
         }
 
-        // Default to list view
         return (
             <div className="space-y-4">
                 {workflows.map(wf => (

@@ -1,16 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Card from './Card';
-import { getDashboardStats } from '../services/api';
-import { initialWorkflows } from '../data/workflows';
-import type { WorkflowStatus } from '../types';
-import { initialCustomServers } from '../data/mcpServers';
+import { getDashboardStats, getLoadedMcpServers } from '../services/api';
+import type { WorkflowStatus, McpServer } from '../types';
 
 interface StatusData {
   mcpCount: number;
   workflowCounts: Record<WorkflowStatus, number>;
-  dbStats: any; // Type from getDbStatistics return
-  vectorStats: any; // Type from getVectorStoreStats return
+  dbStats: any; 
+  vectorStats: any; 
 }
 
 const SkeletonBox: React.FC<{className?: string}> = ({ className }) => <div className={`bg-slate-700/50 rounded-lg animate-pulse ${className}`} />;
@@ -50,24 +48,21 @@ const DashboardSkeleton: React.FC = () => (
 
 const Dashboard: React.FC = () => {
   const [statusData, setStatusData] = useState<StatusData | null>(null);
+  const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-        const { dbStats, vectorStats } = await getDashboardStats();
-        const mcpCount = initialCustomServers.length;
-
-        const workflowCounts = initialWorkflows.reduce((acc, wf) => {
-            acc[wf.status] = (acc[wf.status] || 0) + 1;
-            return acc;
-        }, {} as Record<WorkflowStatus, number>);
+        const stats = await getDashboardStats();
+        const mcpServers = await getLoadedMcpServers();
+        setLoadedMcps(mcpServers);
 
         setStatusData({
-            mcpCount,
-            workflowCounts,
-            dbStats,
-            vectorStats,
+            mcpCount: stats.mcpCount,
+            workflowCounts: stats.workflowCounts as Record<WorkflowStatus, number>,
+            dbStats: stats.dbStats,
+            vectorStats: stats.vectorStats,
         });
     } catch(e) {
         console.error("Failed to fetch dashboard data", e)
@@ -172,7 +167,7 @@ const Dashboard: React.FC = () => {
        <Card>
           <h3 className="text-xl font-semibold text-white mb-4">MCP Connections</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {initialCustomServers.map(server => (
+            {loadedMcps.map(server => (
                 <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg">
                     <div className="flex items-center mb-1">
                         <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>

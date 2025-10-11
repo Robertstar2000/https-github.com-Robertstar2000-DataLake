@@ -38,4 +38,6 @@ export interface McpServer {
   url: string;
   type: 'Official' | 'Custom';
   description: string;
+  // FIX: Added optional isLoaded property to align with component and backend logic.
+  isLoaded?: boolean;
 }

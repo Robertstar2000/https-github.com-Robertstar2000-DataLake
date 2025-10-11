@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from './Card';
-import { initialWorkflows } from '../data/workflows';
-import type { WorkflowStatus } from '../types';
+import { getWorkflows } from '../services/api';
+import type { WorkflowStatus, Workflow } from '../types';
 
 type Role = 'Admin' | 'Analyst' | 'Viewer';
 
@@ -55,6 +56,11 @@ const DlControls: React.FC = () => {
   const [users, setUsers] = useState<User[]>(mockUsers);
   const [policies, setPolicies] = useState<Policy[]>(mockPolicies);
   const [optimizing, setOptimizing] = useState(false);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+
+  useEffect(() => {
+    getWorkflows().then(setWorkflows);
+  }, []);
 
   const handleRoleChange = (userId: number, newRole: Role) => {
     setUsers(users.map(u => (u.id === userId ? { ...u, role: newRole } : u)));
@@ -70,11 +76,11 @@ const DlControls: React.FC = () => {
   }
 
   const workflowStatusCounts = useMemo(() => {
-    return initialWorkflows.reduce((acc, workflow) => {
+    return workflows.reduce((acc, workflow) => {
       acc[workflow.status] = (acc[workflow.status] || 0) + 1;
       return acc;
     }, {} as Record<WorkflowStatus, number>);
-  }, [initialWorkflows]);
+  }, [workflows]);
 
   const totalCost = Object.values(mockCosts).reduce((sum, cost) => sum + cost, 0);
 

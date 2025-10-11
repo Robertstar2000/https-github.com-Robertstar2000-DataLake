@@ -1,32 +1,37 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from './Card';
-import { initialMcpServers, initialCustomServers } from '../data/mcpServers';
+import { getMcpServers, saveMcpServer } from '../services/api';
 import type { McpServer } from '../types';
 
-// Let's create unique IDs for the library servers
-const libraryServers: McpServer[] = initialMcpServers.map((s, i) => ({
-    ...s,
-    id: `lib-server-${i}`,
-    type: 'Official',
-}));
-
 const McpProtocol: React.FC = () => {
-    const [installedServers, setInstalledServers] = useState<McpServer[]>(initialCustomServers);
+    const [allServers, setAllServers] = useState<McpServer[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [newServerName, setNewServerName] = useState('');
     const [newServerUrl, setNewServerUrl] = useState('');
 
-    const handleLoadServer = (server: McpServer) => {
-        if (!installedServers.some(s => s.id === server.id)) {
-            setInstalledServers([...installedServers, server]);
-        }
+    useEffect(() => {
+        const loadServers = async () => {
+            setIsLoading(true);
+            const servers = await getMcpServers();
+            setAllServers(servers);
+            setIsLoading(false);
+        };
+        loadServers();
+    }, []);
+
+    const handleToggleLoad = async (server: McpServer) => {
+        const isCurrentlyLoaded = server.isLoaded;
+        const updatedServer = { ...server, isLoaded: !isCurrentlyLoaded };
+        
+        // Update local state immediately for responsiveness
+        setAllServers(allServers.map(s => s.id === server.id ? updatedServer : s));
+        
+        // Persist change to the database
+        await saveMcpServer(server, !isCurrentlyLoaded);
     };
 
-    const handleUnloadServer = (serverId: string) => {
-        setInstalledServers(installedServers.filter(s => s.id !== serverId));
-    };
-
-    const handleAddCustomServer = (e: React.FormEvent) => {
+    const handleAddCustomServer = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newServerName.trim() || !newServerUrl.trim()) return;
 
@@ -36,14 +41,18 @@ const McpProtocol: React.FC = () => {
             url: newServerUrl,
             description: 'A custom user-added server.',
             type: 'Custom',
+            isLoaded: true, // Custom servers are loaded by default
         };
 
-        setInstalledServers([...installedServers, newServer]);
+        setAllServers([...allServers, newServer]);
         setNewServerName('');
         setNewServerUrl('');
+        
+        await saveMcpServer(newServer, true);
     };
-    
-    const isLoaded = (serverId: string) => installedServers.some(s => s.id === serverId);
+
+    const libraryServers = allServers.filter(s => s.type === 'Official');
+    const installedServers = allServers.filter(s => s.isLoaded);
 
     return (
         <div className="space-y-6">
@@ -56,9 +65,9 @@ const McpProtocol: React.FC = () => {
                 {/* Left Side: Installed & Custom */}
                 <div className="space-y-6">
                     <Card>
-                        <h2 className="text-xl font-bold text-white mb-4">Installed Servers</h2>
+                        <h2 className="text-xl font-bold text-white mb-4">Loaded Servers</h2>
                         <div className="space-y-3">
-                            {installedServers.length > 0 ? (
+                            {isLoading ? <p className="text-slate-400">Loading...</p> : installedServers.length > 0 ? (
                                 installedServers.map(server => (
                                     <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg flex items-center justify-between">
                                         <div>
@@ -66,7 +75,7 @@ const McpProtocol: React.FC = () => {
                                             <p className="text-sm text-cyan-400 font-mono">{server.url}</p>
                                         </div>
                                         <button 
-                                            onClick={() => handleUnloadServer(server.id)}
+                                            onClick={() => handleToggleLoad(server)}
                                             className="px-3 py-1 bg-red-800/80 hover:bg-red-800 text-sm rounded font-semibold text-white"
                                         >
                                             Unload
@@ -74,7 +83,7 @@ const McpProtocol: React.FC = () => {
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-slate-400 text-center py-4">No servers installed. Load one from the library.</p>
+                                <p className="text-slate-400 text-center py-4">No servers loaded. Load one from the library.</p>
                             )}
                         </div>
                     </Card>
@@ -113,18 +122,18 @@ const McpProtocol: React.FC = () => {
                 <Card className="flex flex-col">
                     <h2 className="text-xl font-bold text-white mb-4">Server Library</h2>
                     <div className="flex-grow overflow-y-auto space-y-3 pr-2 -mr-2 max-h-[calc(100vh-250px)]">
-                        {libraryServers.map(server => (
+                       {isLoading ? <p className="text-slate-400">Loading...</p> : libraryServers.map(server => (
                              <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg flex items-center justify-between gap-4">
                                 <div className="flex-grow">
                                     <p className="font-semibold text-slate-200">{server.name}</p>
                                     <p className="text-sm text-slate-400">{server.description}</p>
                                 </div>
                                 <button 
-                                    onClick={() => handleLoadServer(server)}
-                                    disabled={isLoaded(server.id)}
+                                    onClick={() => handleToggleLoad(server)}
+                                    disabled={server.isLoaded}
                                     className="px-3 py-1 bg-cyan-500 text-sm rounded font-semibold text-white hover:bg-cyan-600 disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap"
                                 >
-                                    {isLoaded(server.id) ? 'Loaded' : 'Load'}
+                                    {server.isLoaded ? 'Loaded' : 'Load'}
                                 </button>
                             </div>
                         ))}

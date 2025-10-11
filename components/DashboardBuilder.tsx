@@ -3,26 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import type { Dashboard, WidgetConfig, ChartType } from '../types';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { executeQuery } from '../services/api';
-
-const LOCAL_STORAGE_KEY = 'app_dashboards';
-
-const initialDashboards: Dashboard[] = [
-    {
-        id: 'sales-overview-1',
-        name: 'Sales Overview',
-        description: 'A high-level look at sales performance and key metrics.',
-        widgets: [
-            { id: 'w1', title: 'Total Revenue', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT SUM(total_amount) as value FROM p21_sales_orders' },
-            { id: 'w2', title: 'Total Orders', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT COUNT(*) as value FROM p21_sales_orders' },
-            { id: 'w3', title: 'Unique Customers', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT COUNT(DISTINCT customer_id) as value FROM p21_customers' },
-            { id: 'w4', title: 'Avg. Order Value', type: 'Metric', colSpan: 1, sqlQuery: 'SELECT AVG(total_amount) as value FROM p21_sales_orders' },
-            { id: 'w5', title: 'Revenue by Product (Top 5)', type: 'Bar', colSpan: 4, sqlQuery: "SELECT i.item_description as name, SUM(ol.quantity * ol.price_per_unit) as value FROM p21_sales_order_lines ol JOIN p21_items i ON ol.item_id = i.item_id GROUP BY i.item_description ORDER BY value DESC LIMIT 5" },
-            { id: 'w6', title: 'Orders Over Time', type: 'Line', colSpan: 2, sqlQuery: 'SELECT order_date as name, COUNT(order_num) as value FROM p21_sales_orders GROUP BY order_date ORDER BY order_date' },
-            { id: 'w7', title: 'Top Product Revenue (Pie)', type: 'Pie', colSpan: 2, sqlQuery: "SELECT i.item_description as name, SUM(ol.quantity * ol.price_per_unit) as value FROM p21_sales_order_lines ol JOIN p21_items i ON ol.item_id = i.item_id GROUP BY i.item_description ORDER BY value DESC LIMIT 5" },
-        ]
-    }
-];
+import { executeQuery, getDashboards, saveDashboard, deleteDashboard as apiDeleteDashboard } from '../services/api';
 
 const CHART_TYPES: ChartType[] = ['Metric', 'Bar', 'Line', 'Pie'];
 const COLORS = ['#06b6d4', '#818cf8', '#f87171', '#fbbf24', '#a3e635', '#f472b6'];
@@ -122,28 +103,20 @@ const DashboardBuilder: React.FC = () => {
     const draggedWidgetId = useRef<string | null>(null);
 
     useEffect(() => {
-        try {
-            const savedDashboards = localStorage.getItem(LOCAL_STORAGE_KEY);
-            const loadedDashboards = savedDashboards ? JSON.parse(savedDashboards) : initialDashboards;
-            setDashboards(loadedDashboards);
-            if (loadedDashboards.length > 0) {
-                setActiveDashboardId(loadedDashboards[0].id);
+        const loadDashboards = async () => {
+            try {
+                const loadedDashboards = await getDashboards();
+                setDashboards(loadedDashboards);
+                if (loadedDashboards.length > 0 && !activeDashboardId) {
+                    setActiveDashboardId(loadedDashboards[0].id);
+                }
+            } catch (error) {
+                console.error("Failed to load dashboards:", error);
             }
-        } catch (error) {
-            console.error("Failed to load dashboards:", error);
-            setDashboards(initialDashboards);
-            setActiveDashboardId(initialDashboards[0]?.id || null);
-        }
+        };
+        loadDashboards();
     }, []);
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dashboards));
-        } catch (error) {
-            console.error("Failed to save dashboards:", error);
-        }
-    }, [dashboards]);
-    
     const activeDashboard = dashboards.find(d => d.id === activeDashboardId);
     
     useEffect(() => {
@@ -153,9 +126,8 @@ const DashboardBuilder: React.FC = () => {
         }
     
         const fetchAllWidgetData = async () => {
-            // Set all to loading state initially
             const initialData = activeDashboard.widgets.reduce((acc, widget) => {
-                acc[widget.id] = undefined; // 'undefined' signifies loading
+                acc[widget.id] = undefined; 
                 return acc;
             }, {} as Record<string, any>);
             setWidgetData(initialData);
@@ -163,8 +135,6 @@ const DashboardBuilder: React.FC = () => {
             const dataPromises = activeDashboard.widgets.map(async (widget) => {
                 try {
                     const result = await executeQuery(widget.sqlQuery);
-                    
-                    // FIX: Use a type guard to check for the 'error' property on the union type.
                     if ('error' in result) {
                         console.error(`Error executing query for widget "${widget.title}":`, result.error);
                         return { id: widget.id, data: { error: result.error } };
@@ -212,11 +182,13 @@ const DashboardBuilder: React.FC = () => {
     }, [activeDashboard]);
     
 
-    const updateActiveDashboard = (updatedDashboard: Dashboard) => {
-        setDashboards(dashboards.map(d => d.id === updatedDashboard.id ? updatedDashboard : d));
+    const updateActiveDashboard = async (updatedDashboard: Dashboard) => {
+        const newDashboards = dashboards.map(d => d.id === updatedDashboard.id ? updatedDashboard : d);
+        setDashboards(newDashboards);
+        await saveDashboard(updatedDashboard);
     }
 
-    const handleAddDashboard = () => {
+    const handleAddDashboard = async () => {
         const name = prompt("Enter new dashboard name:", "New Dashboard");
         if(name) {
             const newDashboard: Dashboard = {
@@ -228,11 +200,14 @@ const DashboardBuilder: React.FC = () => {
             setDashboards([...dashboards, newDashboard]);
             setActiveDashboardId(newDashboard.id);
             setIsEditing(true);
+            await saveDashboard(newDashboard);
         }
     }
     
-    const handleDeleteDashboard = () => {
+    const handleDeleteDashboard = async () => {
         if (!activeDashboard || !window.confirm(`Are you sure you want to delete "${activeDashboard.name}"?`)) return;
+        
+        await apiDeleteDashboard(activeDashboard.id);
         const newDashboards = dashboards.filter(d => d.id !== activeDashboard.id);
         setDashboards(newDashboards);
         setActiveDashboardId(newDashboards[0]?.id || null);
@@ -280,22 +255,13 @@ const DashboardBuilder: React.FC = () => {
         e.currentTarget.classList.remove('border-cyan-500');
     }
     
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-    }
-    
-    const handleDragEnter = (e: React.DragEvent) => {
-        (e.currentTarget as HTMLDivElement).classList.add('border-cyan-500');
-    }
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        (e.currentTarget as HTMLDivElement).classList.remove('border-cyan-500');
-    }
+    const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+    const handleDragEnter = (e: React.DragEvent) => (e.currentTarget as HTMLDivElement).classList.add('border-cyan-500');
+    const handleDragLeave = (e: React.DragEvent) => (e.currentTarget as HTMLDivElement).classList.remove('border-cyan-500');
 
 
     return (
         <div className="space-y-6 h-full flex flex-col">
-            {/* Tabs */}
             <div className="flex border-b border-slate-700 items-center">
                 {dashboards.map(db => (
                     <button key={db.id} onClick={() => { setActiveDashboardId(db.id); setIsEditing(false); }} className={`px-4 py-2 -mb-px font-medium text-lg border-b-2 transition-colors duration-200 ${activeDashboardId === db.id ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
@@ -307,7 +273,6 @@ const DashboardBuilder: React.FC = () => {
             
             {activeDashboard ? (
                 <div className="flex-grow flex flex-col min-h-0">
-                    {/* Header */}
                     <div className="flex justify-between items-center mb-4 flex-none">
                         <div>
                             {isEditing ? (
@@ -333,7 +298,6 @@ const DashboardBuilder: React.FC = () => {
                         </div>
                     </div>
                     
-                    {/* Dashboard Grid */}
                     <div className="flex-grow overflow-y-auto pr-4 -mr-4">
                         {activeDashboard.widgets.length > 0 ? (
                              <div className="grid grid-cols-4 gap-6">

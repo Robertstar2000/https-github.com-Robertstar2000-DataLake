@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
-import { initialCustomServers } from '../data/mcpServers';
+import { getLoadedMcpServers } from '../services/api';
 import type { McpServer } from '../types';
 
 // Mock data and types
@@ -87,31 +87,42 @@ const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): IoLog 
 };
 
 const IoManagement: React.FC = () => {
-    const [mcpServers] = useState<McpServer[]>(initialCustomServers);
-    const [selectedMcpId, setSelectedMcpId] = useState<string | null>(mcpServers.length > 0 ? mcpServers[0].id : null);
+    const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+    const [selectedMcpId, setSelectedMcpId] = useState<string | null>(null);
     
-    const [configs, setConfigs] = useState<Record<string, McpConfig>>(() => {
-        const initialConfigs: Record<string, McpConfig> = {};
-        mcpServers.forEach(server => {
-            initialConfigs[server.id] = { queryFrequency: '5m' };
-        });
-        return initialConfigs;
-    });
-    
-    const [logs, setLogs] = useState<Record<string, { uploads: IoLog[], downloads: IoLog[] }>>(() => {
-         const initialLogs: Record<string, { uploads: IoLog[], downloads: IoLog[] }> = {};
-        mcpServers.forEach(server => {
-            initialLogs[server.id] = { uploads: [], downloads: [] };
-        });
-        return initialLogs;
-    });
+    const [configs, setConfigs] = useState<Record<string, McpConfig>>({});
+    const [logs, setLogs] = useState<Record<string, { uploads: IoLog[], downloads: IoLog[] }>>({});
 
     const intervalRef = useRef<number | null>(null);
 
     useEffect(() => {
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-        }
+        const loadServers = async () => {
+            const loadedServers = await getLoadedMcpServers();
+            setMcpServers(loadedServers);
+            if (loadedServers.length > 0) {
+                setSelectedMcpId(loadedServers[0].id);
+                // Initialize configs and logs for fetched servers
+                setConfigs(prev => {
+                    const newConfigs = {...prev};
+                    loadedServers.forEach(s => {
+                        if (!newConfigs[s.id]) newConfigs[s.id] = { queryFrequency: '5m' };
+                    });
+                    return newConfigs;
+                });
+                setLogs(prev => {
+                    const newLogs = {...prev};
+                    loadedServers.forEach(s => {
+                        if (!newLogs[s.id]) newLogs[s.id] = { uploads: [], downloads: [] };
+                    });
+                    return newLogs;
+                });
+            }
+        };
+        loadServers();
+    }, []);
+
+    useEffect(() => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
 
         if (selectedMcpId) {
             const selectedMcp = mcpServers.find(s => s.id === selectedMcpId);
@@ -133,9 +144,7 @@ const IoManagement: React.FC = () => {
         }
 
         return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
+            if (intervalRef.current) clearInterval(intervalRef.current);
         };
     }, [selectedMcpId, mcpServers]);
 
@@ -147,8 +156,8 @@ const IoManagement: React.FC = () => {
     };
 
     const selectedMcp = mcpServers.find(s => s.id === selectedMcpId);
-    const selectedMcpLogs = selectedMcpId ? logs[selectedMcpId] : { uploads: [], downloads: [] };
-    const selectedMcpConfig = selectedMcpId ? configs[selectedMcpId] : null;
+    const selectedMcpLogs = (selectedMcpId && logs[selectedMcpId]) ? logs[selectedMcpId] : { uploads: [], downloads: [] };
+    const selectedMcpConfig = (selectedMcpId && configs[selectedMcpId]) ? configs[selectedMcpId] : null;
 
     return (
         <div className="space-y-6 h-full flex flex-col">
@@ -160,7 +169,7 @@ const IoManagement: React.FC = () => {
             <div className="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
                 {/* Left: MCP List */}
                 <Card className="lg:col-span-1 flex flex-col">
-                    <h2 className="text-xl font-semibold text-white mb-4">Connected MCPs</h2>
+                    <h2 className="text-xl font-semibold text-white mb-4">Loaded MCPs</h2>
                     <ul className="flex-grow overflow-y-auto space-y-2 pr-2 -mr-2">
                         {mcpServers.map(server => (
                             <li

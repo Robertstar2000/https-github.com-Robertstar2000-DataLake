@@ -1,9 +1,10 @@
 
+
 import * as beDb from './be-db';
 import * as beGemini from './be-gemini';
 import * as bePipelines from './be-pipelines';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-import type { Workflow } from '../types';
+import type { Workflow, McpServer, Dashboard } from '../types';
 
 /**
  * This file acts as the frontend's API client.
@@ -89,7 +90,57 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
 
 
 // --- Pipeline API ---
-// This is already an async function that simulates its own delays, so we can call it directly.
 export const executeWorkflow = (workflow: Workflow, logCallback: (message: string) => void): Promise<boolean> => {
     return bePipelines.executeWorkflow(workflow, logCallback);
 };
+
+// --- App State Management API ---
+
+export const getMcpServers = async (): Promise<McpServer[]> => {
+    await simulateLatency();
+    return beDb.getMcpServers();
+}
+
+export const getLoadedMcpServers = async (): Promise<McpServer[]> => {
+    await simulateLatency();
+    return beDb.getLoadedMcpServers();
+}
+
+export const saveMcpServer = async (server: McpServer, isLoaded: boolean): Promise<void> => {
+    await simulateLatency();
+    // FIX: Removed the 'return' keyword to match the Promise<void> signature.
+    // The function should not return the result of the underlying db call.
+    beDb.saveMcpServer(server, isLoaded);
+}
+
+export const getWorkflows = async (): Promise<Workflow[]> => {
+    await simulateLatency();
+    return beDb.getWorkflows();
+}
+
+export const saveWorkflow = async (workflow: Workflow): Promise<void> => {
+    await simulateLatency();
+    return beDb.saveWorkflow(workflow);
+}
+
+export const deleteWorkflow = async (id: string): Promise<void> => {
+    await simulateLatency();
+    // FIX: Removed the 'return' keyword to match the Promise<void> signature.
+    // The function was returning the result of the underlying db call, causing a type mismatch.
+    beDb.deleteWorkflow(id);
+}
+
+export const getDashboards = async (): Promise<Dashboard[]> => {
+    await simulateLatency();
+    return beDb.getDashboards();
+}
+
+export const saveDashboard = async (dashboard: Dashboard): Promise<void> => {
+    await simulateLatency();
+    return beDb.saveDashboard(dashboard);
+}
+
+export const deleteDashboard = async (id: string): Promise<void> => {
+    await simulateLatency();
+    return beDb.deleteDashboard(id);
+}
