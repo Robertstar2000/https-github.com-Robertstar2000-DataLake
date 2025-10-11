@@ -1,0 +1,58 @@
+import type { Pipeline } from '../types';
+
+export const initialPipelines: Pipeline[] = [
+  {
+    id: 'pipe-001',
+    name: 'Real-time Web Analytics Ingestion',
+    stage: 'Production',
+    source: 'Kafka: web_events',
+    destination: 'S3: raw-zone/web_events',
+    lastRun: '2023-10-26 14:05:12',
+    status: 'Healthy',
+  },
+  {
+    id: 'pipe-002',
+    name: 'Nightly CRM Data Sync',
+    stage: 'Production',
+    source: 'Salesforce API',
+    destination: 'Redshift: customers_staging',
+    lastRun: '2023-10-26 02:00:00',
+    status: 'Healthy',
+  },
+  {
+    id: 'pipe-003',
+    name: 'Log Processing and Archiving',
+    stage: 'Production',
+    source: 'Fluentd Aggregator',
+    destination: 'S3: archived_logs',
+    lastRun: '2023-10-26 13:45:00',
+    status: 'Failing',
+  },
+  {
+    id: 'pipe-004',
+    name: 'New Product Recommendation Model',
+    stage: 'Testing',
+    source: 'S3: processed_orders',
+    destination: 'SageMaker Endpoint',
+    lastRun: '2023-10-25 18:00:00',
+    status: 'Paused',
+  },
+  {
+    id: 'pipe-005',
+    name: 'Social Media Sentiment Analysis',
+    stage: 'Testing',
+    source: 'Twitter Firehose',
+    destination: 'Elasticsearch Cluster',
+    lastRun: '2023-10-26 11:30:21',
+    status: 'Healthy',
+  },
+  {
+    id: 'pipe-006',
+    name: 'Mobile App Telemetry Pipeline',
+    stage: 'Design',
+    source: 'TBD',
+    destination: 'TBD',
+    lastRun: 'N/A',
+    status: 'Paused',
+  },
+];
