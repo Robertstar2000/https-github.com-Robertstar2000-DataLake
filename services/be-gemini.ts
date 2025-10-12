@@ -16,7 +16,7 @@ const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
 // --- Rate Limiting ---
 let lastApiCallTimestamp = 0;
-const MIN_API_CALL_INTERVAL_MS = 2000; // 2 seconds
+const MIN_API_CALL_INTERVAL_MS = 5000; // 5 seconds
 
 async function ensureApiRateLimit() {
   const now = Date.now();
@@ -70,9 +70,13 @@ export const processUnstructuredData = async (
     });
     
     return response.text;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error calling Gemini API for unstructured data:", error);
-    return "The AI is currently unavailable due to a connection issue or high demand. Please try your request again in a moment.";
+    const errorString = JSON.stringify(error);
+    if (errorString.includes('429') || errorString.includes('RESOURCE_EXHAUSTED')) {
+        return "The AI service is currently experiencing high demand or your quota has been exceeded. Please check your API plan or try again in a few moments.";
+    }
+    return "The AI is currently unavailable due to a connection issue. Please try again in a moment.";
   }
 };
 
@@ -177,7 +181,13 @@ export async function* getAiAnalystResponseStream(query: string) {
         }
     } catch (error: any) {
         console.error("Error in AI Analyst stream:", error);
-        yield { status: 'error', text: `An error occurred while communicating with the AI: ${error.message}` };
+        let userFriendlyMessage = `An unexpected error occurred while communicating with the AI: ${error.message}`;
+        const errorString = JSON.stringify(error);
+
+        if (errorString.includes('429') || errorString.includes('RESOURCE_EXHAUSTED')) {
+            userFriendlyMessage = "The AI service is currently experiencing high demand or your quota has been exceeded. Please check your API plan or try again in a few moments.";
+        }
+        yield { status: 'error', text: userFriendlyMessage };
     }
 }
 
@@ -213,27 +223,35 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
         User Query: "${searchQuery}"
     `;
     
-    await ensureApiRateLimit();
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    tables: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
-                    },
-                    columns: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
+    try {
+        await ensureApiRateLimit();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        tables: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                        },
+                        columns: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                        }
                     }
                 }
             }
+        });
+        return JSON.parse(response.text);
+    } catch (error: any) {
+        console.error("Error calling Gemini API for schema search:", error);
+        const errorString = JSON.stringify(error);
+        if (errorString.includes('429') || errorString.includes('RESOURCE_EXHAUSTED')) {
+            throw new Error("The AI service is currently experiencing high demand or your quota has been exceeded. Please try again in a few moments.");
         }
-    });
-
-    return JSON.parse(response.text);
+        throw new Error(`The AI is currently unavailable due to a connection issue: ${error.message}`);
+    }
 };

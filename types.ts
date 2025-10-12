@@ -42,3 +42,13 @@ export interface McpServer {
   // FIX: Added optional isLoaded property to align with component and backend logic.
   isLoaded?: boolean;
 }
+
+// Types for DL Controls
+export type Role = 'Admin' | 'Analyst' | 'Viewer';
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+}

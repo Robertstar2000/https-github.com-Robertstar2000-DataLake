@@ -4,7 +4,7 @@ import * as beDb from './be-db';
 import * as beGemini from './be-gemini';
 import * as bePipelines from './be-pipelines';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-import type { Workflow, McpServer, Dashboard } from '../types';
+import type { Workflow, McpServer, Dashboard, User } from '../types';
 
 /**
  * This file acts as the frontend's API client.
@@ -144,3 +144,19 @@ export const deleteDashboard = async (id: string): Promise<void> => {
     await simulateLatency();
     return beDb.deleteDashboard(id);
 }
+
+// --- User Management API ---
+export const getUsers = async (): Promise<User[]> => {
+    await simulateLatency();
+    return beDb.getUsers();
+};
+
+export const saveUser = async (user: User): Promise<void> => {
+    await simulateLatency();
+    return beDb.saveUser(user);
+};
+
+export const deleteUser = async (userId: number): Promise<void> => {
+    await simulateLatency();
+    return beDb.deleteUser(userId);
+};

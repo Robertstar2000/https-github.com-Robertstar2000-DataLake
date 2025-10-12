@@ -5,7 +5,7 @@ import type { UnstructuredDocument } from '../data/unstructuredData';
 import { initialCustomServers, initialMcpServers } from '../data/mcpServers';
 import { initialWorkflows } from '../data/workflows';
 import { schemaMetadata } from '../data/schemaMetadata';
-import type { Workflow, McpServer, Dashboard as DashboardType, WidgetConfig } from '../types';
+import type { Workflow, McpServer, Dashboard as DashboardType, WidgetConfig, User } from '../types';
 
 
 // --- IndexedDB Helpers ---
@@ -160,6 +160,7 @@ function populateNewDatabase(db: Database) {
       DROP TABLE IF EXISTS workflows;
       DROP TABLE IF EXISTS dashboards;
       DROP TABLE IF EXISTS dashboard_widgets;
+      DROP TABLE IF EXISTS dl_users;
 
       -- Epicore P21 (ERP) MCP Tables
       CREATE TABLE p21_customers ( customer_id INTEGER PRIMARY KEY, company_name TEXT NOT NULL, contact_name TEXT, contact_email TEXT UNIQUE, address TEXT );
@@ -185,6 +186,7 @@ function populateNewDatabase(db: Database) {
       CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, sources TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT, transformerCode TEXT );
       CREATE TABLE dashboards ( id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT );
       CREATE TABLE dashboard_widgets ( id TEXT PRIMARY KEY, dashboard_id TEXT, title TEXT, type TEXT, colSpan INTEGER, sqlQuery TEXT, FOREIGN KEY (dashboard_id) REFERENCES dashboards(id) );
+      CREATE TABLE dl_users ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, role TEXT );
     `);
 
     // --- POPULATE TABLES WITH MOCK DATA ---
@@ -213,6 +215,19 @@ function populateNewDatabase(db: Database) {
     });
     initialWorkflows.forEach(w => {
       db.run('INSERT INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [w.id, w.name, w.lastExecuted, w.status, w.sources.join('|||'), w.transformer, w.destination, w.repartition, w.trigger, w.transformerCode || null]);
+    });
+
+    // Populate initial users
+    const initialUsers: User[] = [
+        { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Admin' },
+        { id: 2, name: 'Bob Smith', email: 'bob@example.com', role: 'Analyst' },
+        { id: 3, name: 'Charlie Brown', email: 'charlie@example.com', role: 'Viewer' },
+        { id: 4, name: 'Diana Prince', email: 'diana@example.com', role: 'Analyst' },
+        { id: 5, name: 'Eve Adams', email: 'eve@example.com', role: 'Viewer' },
+        { id: 6, name: 'Frank Miller', email: 'frank@example.com', role: 'Viewer' },
+    ];
+    initialUsers.forEach(u => {
+        db.run('INSERT INTO dl_users (id, name, email, role) VALUES (?, ?, ?, ?)', [u.id, u.name, u.email, u.role]);
     });
 
     // Populate initial dashboard
@@ -268,6 +283,14 @@ const isModifyingQuery = (query: string): boolean => {
 export const executeQuery = (query: string, params: (string|number)[] = []) => {
     if (!db) throw new Error("Database not initialized");
     try {
+        // Use db.run() for modifying queries as it's more direct and avoids issues with result set handling.
+        if (isModifyingQuery(query)) {
+            db.run(query, params);
+            saveDbToIndexedDB(db).catch(err => console.error("Async DB save failed:", err));
+            return { headers: [], data: [] }; // No results for modifying queries
+        }
+
+        // For SELECT queries, continue using prepare/step to get results.
         const stmt = db.prepare(query);
         stmt.bind(params);
         const results = [];
@@ -275,10 +298,6 @@ export const executeQuery = (query: string, params: (string|number)[] = []) => {
             results.push(stmt.getAsObject());
         }
         stmt.free();
-
-        if (isModifyingQuery(query)) {
-            saveDbToIndexedDB(db).catch(err => console.error("Async DB save failed:", err));
-        }
 
         if (results.length === 0) {
             return { headers: [], data: [] };
@@ -418,4 +437,29 @@ export const saveDashboard = (dashboard: DashboardType) => {
 export const deleteDashboard = (id: string) => {
     executeQuery("DELETE FROM dashboards WHERE id = ?", [id]);
     executeQuery("DELETE FROM dashboard_widgets WHERE dashboard_id = ?", [id]);
+};
+
+// --- User Management ---
+export const getUsers = (): User[] => executeQuery("SELECT * FROM dl_users ORDER BY name").data;
+
+export const saveUser = (user: User) => {
+    const upsertQuery = `
+        INSERT INTO dl_users (id, name, email, role)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            email = excluded.email,
+            role = excluded.role;
+    `;
+    const result = executeQuery(upsertQuery, [user.id, user.name, user.email, user.role]);
+    if (result.error) {
+        throw new Error(`DB Error: ${result.error}`);
+    }
+};
+
+export const deleteUser = (userId: number) => {
+    const result = executeQuery("DELETE FROM dl_users WHERE id = ?", [userId]);
+    if (result.error) {
+        throw new Error(`DB Error: ${result.error}`);
+    }
 };
