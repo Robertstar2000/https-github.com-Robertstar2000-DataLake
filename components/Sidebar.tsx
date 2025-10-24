@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { View } from '../App';
 
@@ -49,7 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4M4 7l8 5 8-5" />
           </svg>
         </div>
-        <h1 className="text-xl font-bold text-white">Data Lake</h1>
+        <h1 className="text-xl font-bold text-white">Cloud Data Hub</h1>
       </div>
       <nav>
         <ul>

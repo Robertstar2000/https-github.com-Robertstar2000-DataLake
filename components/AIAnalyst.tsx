@@ -1,7 +1,9 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import Card from './Card';
 import { initializeAiAnalyst, getAiAnalystResponseStream } from '../services/api';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const Loader: React.FC = () => (
   <div className="flex items-center space-x-2">
@@ -11,10 +13,61 @@ const Loader: React.FC = () => (
   </div>
 );
 
+interface HistoryMessage {
+  role: 'user' | 'model';
+  parts: string;
+  chart?: {
+    chartType: 'Bar' | 'Line' | 'Pie';
+    title: string;
+    data: any[];
+  };
+}
+
+const COLORS = ['#06b6d4', '#818cf8', '#f87171', '#fbbf24', '#a3e635', '#f472b6'];
+
+const ChartRenderer: React.FC<{chart: HistoryMessage['chart']}> = ({ chart }) => {
+    if (!chart || !chart.data || chart.data.length === 0) return null;
+    
+    return (
+        <div className="my-4 bg-slate-950/50 p-4 rounded-lg">
+            <h4 className="font-semibold text-slate-200 mb-4">{chart.title}</h4>
+            <div style={{ width: '100%', height: 300 }}>
+                <ResponsiveContainer>
+                    { chart.chartType === 'Bar' ? (
+                        <BarChart data={chart.data} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} interval={0} angle={-30} textAnchor="end" />
+                            <YAxis stroke="#9ca3af" fontSize={12} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }} cursor={{fill: 'rgba(100, 116, 139, 0.1)'}} />
+                            <Bar dataKey="value" fill="#06b6d4" />
+                        </BarChart>
+                    ) : chart.chartType === 'Line' ? (
+                        <LineChart data={chart.data} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} interval={'preserveStartEnd'} />
+                            <YAxis stroke="#9ca3af" fontSize={12} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }} />
+                            <Line type="monotone" dataKey="value" stroke="#06b6d4" strokeWidth={2} dot={{ r: 4, fill: '#06b6d4' }} activeDot={{ r: 8 }}/>
+                        </LineChart>
+                    ) : chart.chartType === 'Pie' ? (
+                        <PieChart>
+                            <Pie data={chart.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                                {chart.data.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }} />
+                            <Legend />
+                        </PieChart>
+                    ) : null}
+                </ResponsiveContainer>
+            </div>
+        </div>
+    );
+};
+
 const AIAnalyst: React.FC = () => {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [history, setHistory] = useState<Array<{role: 'user' | 'model', parts: string}>>([]);
+  const [history, setHistory] = useState<HistoryMessage[]>([]);
   const [error, setError] = useState('');
   const [isSchemaAnalyzed, setIsSchemaAnalyzed] = useState(false);
   const [schemaDisplay, setSchemaDisplay] = useState('');
@@ -25,7 +78,7 @@ const AIAnalyst: React.FC = () => {
   const exampleQueries = [
     "Which customer has spent the most money?",
     "What is our best-selling product by revenue?",
-    "How many orders did we have in January 2023?",
+    "Show total order value by date as a line chart.",
     "List all orders for 'Innovate Corp'.",
   ];
 
@@ -63,10 +116,9 @@ const AIAnalyst: React.FC = () => {
 
     setIsLoading(true);
     setError('');
-    setQuery(''); // Clear input after submission
+    setQuery('');
 
-    // Add user query and a placeholder for the model's response
-    setHistory(prev => [...prev, { role: 'user', parts: userQuery }, { role: 'model', parts: '' }]);
+    setHistory(prev => [...prev, { role: 'user', parts: userQuery }, { role: 'model', parts: '', chart: undefined }]);
     
     try {
       const stream = await getAiAnalystResponseStream(userQuery);
@@ -77,19 +129,21 @@ const AIAnalyst: React.FC = () => {
             const newHistory = [...prev];
             const lastMessage = newHistory[newHistory.length - 1];
             
-            if (chunk.status && chunk.text) {
+            if (chunk.status === 'chart_data' && chunk.chart) {
+              lastMessage.chart = chunk.chart;
+            } else if (chunk.status && chunk.text) {
                  if (chunk.status === 'error') {
                      lastMessage.parts = `Error: ${chunk.text}`;
                      setError(chunk.text);
                  } else if (chunk.status === 'final_answer') {
                     if (!isFinalAnswerStage) {
-                        lastMessage.parts = chunk.text; // Overwrite status message
+                        lastMessage.parts = chunk.text;
                         isFinalAnswerStage = true;
                     } else {
-                        lastMessage.parts += chunk.text; // Append subsequent chunks
+                        lastMessage.parts += chunk.text;
                     }
                 } else {
-                    lastMessage.parts = chunk.text; // Show status update
+                    lastMessage.parts = chunk.text;
                 }
             }
             return newHistory;
@@ -118,14 +172,13 @@ const AIAnalyst: React.FC = () => {
       const parts = content.split(sqlRegex);
   
       return parts.map((part, i) => {
-          if (i % 2 === 1) { // SQL code block
+          if (i % 2 === 1) {
               return (
                   <pre key={i} className="bg-slate-950 p-3 rounded-md text-cyan-300 font-mono text-sm my-2 overflow-x-auto">
                       <code>{part.trim()}</code>
                   </pre>
               );
           }
-          // Regular text
           const textParts = part.split(/(\*\*.*?\*\*)/g).filter(Boolean);
           return textParts.map((textPart, j) => {
             if (textPart.startsWith('**') && textPart.endsWith('**')) {
@@ -146,7 +199,7 @@ const AIAnalyst: React.FC = () => {
       <h1 className="text-3xl font-bold text-white">AI Data Analyst</h1>
       <p className="text-slate-400">
         {isSchemaAnalyzed 
-          ? "Ask questions about your data in plain English. The AI will generate and run SQL queries to find the answer."
+          ? "Ask questions about your data in plain English. The AI will generate SQL queries, find the answer, and create charts."
           : "Start by analyzing the schema to provide the AI with context about your database tables."
         }
       </p>
@@ -172,7 +225,8 @@ const AIAnalyst: React.FC = () => {
           {history.map((msg, index) => (
              <div key={index} className={`p-4 rounded-lg ${msg.role === 'user' ? 'bg-cyan-900/50' : 'bg-slate-900/50'}`}>
                 <h3 className="font-semibold mb-2 capitalize">{msg.role === 'model' ? <span className="text-cyan-400">AI Analyst</span> : 'You'}</h3>
-                <div className="prose prose-invert prose-p:text-slate-300 prose-strong:text-white whitespace-pre-wrap">{renderResponse(msg.parts)}</div>
+                {msg.parts && <div className="prose prose-invert prose-p:text-slate-300 prose-strong:text-white whitespace-pre-wrap">{renderResponse(msg.parts)}</div>}
+                {msg.chart && <ChartRenderer chart={msg.chart} />}
                  {isLoading && index === history.length - 1 && msg.role === 'model' && <div className="mt-2"><Loader /></div>}
             </div>
           ))}

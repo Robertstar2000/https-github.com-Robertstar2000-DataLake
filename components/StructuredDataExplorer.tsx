@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { executeQuery, getTableSchemas, searchSchemaWithAi } from '../services/api';
 import { schemaMetadata } from '../data/schemaMetadata';
@@ -34,6 +35,27 @@ const SchemaSidebarSkeleton: React.FC = () => (
     </div>
 );
 
+const ResultsHeader: React.FC<{ tables: string[]; schemas: Record<string, { columns: string }> }> = ({ tables, schemas }) => {
+    if (tables.length === 0) return <h3 className="text-lg font-semibold text-white">Results</h3>;
+    
+    return (
+      <div>
+        <h3 className="text-lg font-semibold text-white">Query Results For:</h3>
+        <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
+            {tables.map(tableName => {
+                const schema = schemas[tableName];
+                return (
+                    <div key={tableName} className="p-2 bg-slate-900/50 rounded-md">
+                        <p className="font-bold text-cyan-400 font-mono text-sm">{tableName}</p>
+                        {schema && <p className="text-xs text-slate-400 font-mono truncate max-w-xs" title={schema.columns}>{schema.columns}</p>}
+                    </div>
+                );
+            })}
+        </div>
+      </div>
+    );
+};
+
 const StructuredDataExplorer: React.FC = () => {
     const [query, setQuery] = useState('SELECT * FROM p21_customers;');
     const [executedQuery, setExecutedQuery] = useState<string | null>(null);
@@ -41,38 +63,62 @@ const StructuredDataExplorer: React.FC = () => {
     const [queryError, setQueryError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [history, setHistory] = useState<string[]>([]);
-    const [tableSchemas, setTableSchemas] = useState<Record<string, string>>({});
+    const [tableSchemas, setTableSchemas] = useState<Record<string, { columns: string }>>({});
     const [isSchemaLoading, setIsSchemaLoading] = useState(true);
+    const [displayedTables, setDisplayedTables] = useState<string[]>([]);
     
-    // State for AI search
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [searchResults, setSearchResults] = useState<{ tables: string[], columns: string[] }>({ tables: [], columns: [] });
 
-    useEffect(() => {
-        const loadInitialData = async () => {
-            setIsSchemaLoading(true);
+    const loadInitialData = async () => {
+        setIsSchemaLoading(true);
+        try {
             try {
                 const savedHistory = localStorage.getItem('sqlQueryHistory');
                 if (savedHistory) {
                     setHistory(JSON.parse(savedHistory));
                 }
-                const schemas = await getTableSchemas();
-                setTableSchemas(schemas);
             } catch (e) {
-                console.error("Failed to load initial data", e);
-            } finally {
-                setIsSchemaLoading(false);
+                console.warn("Could not access localStorage for query history:", e);
             }
-        };
+
+            const schemas = await getTableSchemas();
+            // We only need the columns for this component's purpose
+            const simplifiedSchemas = Object.entries(schemas).reduce((acc, [name, { columns }]) => {
+                acc[name] = { columns };
+                return acc;
+            }, {} as Record<string, { columns: string }>);
+            setTableSchemas(simplifiedSchemas);
+
+        } catch (e) {
+            console.error("Failed to load initial data", e);
+        } finally {
+            setIsSchemaLoading(false);
+        }
+    };
+    
+    useEffect(() => {
         loadInitialData();
     }, []);
 
     const updateHistory = (newQuery: string) => {
         const updatedHistory = [newQuery, ...history.filter(h => h !== newQuery)].slice(0, 10);
         setHistory(updatedHistory);
-        localStorage.setItem('sqlQueryHistory', JSON.stringify(updatedHistory));
+        try {
+            localStorage.setItem('sqlQueryHistory', JSON.stringify(updatedHistory));
+        } catch (e) {
+            console.warn("Could not save query history to localStorage:", e);
+        }
+    };
+    
+    const parseTablesFromQuery = (sql: string): string[] => {
+        const cleanedSql = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+        const regex = /\bFROM\s+([a-zA-Z0-9_]+)|\bJOIN\s+([a-zA-Z0-9_]+)/gi;
+        const matches = [...cleanedSql.matchAll(regex)];
+        const tableNames = matches.map(match => match[1] || match[2]).filter(Boolean);
+        return [...new Set(tableNames)]; // Return unique table names
     };
   
     const handleRunQuery = async () => {
@@ -80,6 +126,7 @@ const StructuredDataExplorer: React.FC = () => {
       setQueryError(null);
       setQueryResult(null);
       setExecutedQuery(query);
+      setDisplayedTables(parseTablesFromQuery(query));
       
       try {
         const result = await executeQuery(query);
@@ -122,7 +169,6 @@ const StructuredDataExplorer: React.FC = () => {
 
     return (
         <div className="h-full flex gap-6">
-            {/* Left Panel: Schema and Query */}
             <div className="w-1/3 flex flex-col gap-4">
                 <div className="flex-none">
                     <h3 className="text-lg font-semibold text-white mb-2">Query Editor</h3>
@@ -160,7 +206,7 @@ const StructuredDataExplorer: React.FC = () => {
                         {searchError && <p className="text-xs text-red-400">{searchError}</p>}
                         
                         <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-2 overflow-y-auto flex-1">
-                            {isSchemaLoading ? <SchemaSidebarSkeleton /> : Object.entries(tableSchemas).map(([tableName, columns]) => {
+                            {isSchemaLoading ? <SchemaSidebarSkeleton /> : Object.entries(tableSchemas).map(([tableName, { columns }]) => {
                                 const tableMeta = schemaMetadata[tableName];
                                 const isTableHighlighted = searchResults.tables.includes(tableName);
                                 const hasVector = tableMeta?.inVectorStore;
@@ -182,7 +228,8 @@ const StructuredDataExplorer: React.FC = () => {
                                         <div className="pl-4 border-l-2 border-slate-700 ml-2 mt-1">
                                             {(typeof columns === 'string' ? columns : '').split(', ').map(colStr => {
                                                 const [colName, colType] = colStr.replace(')', '').split(' (');
-                                                const colMeta = tableMeta?.columns[colName];
+                                                // FIX: Used optional chaining (?.) for safer access to tableMeta.columns, preventing a potential crash if tableMeta is undefined for a given table.
+                                                const colMeta = tableMeta?.columns?.[colName];
                                                 const isColHighlighted = searchResults.columns.includes(`${tableName}.${colName}`);
                                                 return (
                                                     <div key={colName} className={`py-1 px-2 rounded ${isColHighlighted ? 'bg-cyan-500/20' : ''}`}>
@@ -215,10 +262,9 @@ const StructuredDataExplorer: React.FC = () => {
                 </div>
             </div>
 
-            {/* Right Panel: Results */}
             <div className="w-2/3 flex flex-col bg-slate-800/50 border border-slate-700/50 rounded-lg">
                 <div className="flex-none p-4 border-b border-slate-700">
-                    <h3 className="text-lg font-semibold text-white">Results</h3>
+                    <ResultsHeader tables={displayedTables} schemas={tableSchemas} />
                 </div>
                 <div className="flex-grow flex flex-col min-h-0">
                     {executedQuery && (

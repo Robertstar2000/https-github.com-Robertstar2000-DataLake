@@ -17,16 +17,73 @@ export const schemaMetadata: Record<string, TableMetadata> = {
       contact_name: { description: "Primary contact person at the company." },
       contact_email: { description: "Email address for the primary contact." },
       address: { description: "Physical mailing address of the company." },
+      credit_limit: { description: "The customer's approved credit limit in USD." },
+      on_credit_hold: { description: "Flag (1 or 0) indicating if the customer is on credit hold." },
+      last_credit_check_date: { description: "The date of the last formal credit review." },
+    },
+  },
+  p21_credit_applications: {
+    description: "Tracks credit limit applications and the vetting process for customers.",
+    columns: {
+      application_id: { description: "Unique identifier for the credit application." },
+      customer_id: { description: "Foreign key linking to the p21_customers table." },
+      application_date: { description: "The date the credit application was submitted." },
+      requested_limit: { description: "The credit limit amount requested by the customer." },
+      status: { description: "Current status of the application (e.g., 'Pending', 'Approved', 'Rejected')." },
+      decision_date: { description: "The date a decision was made on the application." },
     },
   },
   p21_items: {
-    description: "Represents the master list of all products or items available for sale.",
+    description: "Represents the master list of all products or items available for sale, manufacturing, or service.",
     inVectorStore: true,
     columns: {
       item_id: { description: "Unique identifier for the product/item (SKU)." },
       item_description: { description: "A detailed description of the item." },
+      item_type: { description: "The type of item (e.g., 'Purchased', 'Manufactured', 'Service')." },
       unit_price: { description: "The price for a single unit of the item." },
-      quantity_on_hand: { description: "Current stock level for this item." },
+      quantity_on_hand: { description: "Current stock level for this item in the main warehouse." },
+    },
+  },
+    p21_suppliers: {
+    description: "Information about suppliers from whom goods and services are purchased.",
+    columns: {
+      supplier_id: { description: "Unique identifier for the supplier." },
+      supplier_name: { description: "The legal name of the supplier." },
+      contact_email: { description: "Primary email contact for the supplier." },
+    },
+  },
+  p21_purchase_orders: {
+    description: "Header information for purchase orders issued to suppliers.",
+    columns: {
+      po_num: { description: "Unique identifier for the purchase order." },
+      supplier_id: { description: "Foreign key linking to the p21_suppliers table." },
+      order_date: { description: "The date the purchase order was created." },
+      total_amount: { description: "The total value of the purchase order." },
+    },
+  },
+  p21_po_lines: {
+    description: "Line item details for each purchase order.",
+    columns: {
+      line_id: { description: "Unique identifier for the purchase order line." },
+      po_num: { description: "Foreign key linking to p21_purchase_orders." },
+      item_id: { description: "Foreign key linking to the p21_items table." },
+      quantity_ordered: { description: "The number of units of the item ordered." },
+    },
+  },
+  p21_inventory_locations: {
+    description: "Defines physical or logical locations where inventory is stored.",
+    columns: {
+      location_id: { description: "Unique identifier for the inventory location (e.g., 'MAIN', 'QC')." },
+      location_name: { description: "A descriptive name for the location." },
+      is_primary: { description: "Flag (1 or 0) indicating if this is the primary sales location." },
+    },
+  },
+  p21_item_inventory: {
+    description: "Tracks the quantity of items at different inventory locations.",
+    columns: {
+      item_id: { description: "Foreign key linking to the p21_items table." },
+      location_id: { description: "Foreign key linking to p21_inventory_locations." },
+      quantity: { description: "The quantity of the item at that specific location." },
     },
   },
   p21_sales_orders: {
@@ -77,15 +134,84 @@ export const schemaMetadata: Record<string, TableMetadata> = {
       asset_id: { description: "Foreign key linking to por_rental_assets." },
     },
   },
-  qc_tests: {
-    description: "Stores results from quality control tests performed on items.",
+  qc_rubber_goods_tests: {
+    description: "Stores pass/fail results and metrics from high-voltage testing of rubber safety goods.",
     columns: {
       test_id: { description: "Unique identifier for a specific test run." },
-      test_suite: { description: "The category or type of test performed (e.g., 'Rubbergoods')." },
-      item_id: { description: "The item that was tested (optional link to p21_items)." },
+      item_id: { description: "The base item that was tested (e.g., '14-inch Class 2 Glove')." },
+      serial_number_tested: { description: "The unique serial number of the specific item tested." },
       test_date: { description: "Date the test was conducted." },
       result: { description: "The outcome of the test ('Pass' or 'Fail')." },
-      metrics: { description: "A JSON blob containing detailed metrics from the test." },
+      voltage_kv: { description: "The voltage in kilovolts applied during the test." },
+      leakage_ma: { description: "The measured electrical leakage in milliamps." },
+      technician_id: { description: "Identifier for the technician who performed the test." },
+    },
+  },
+  qc_fiberglass_tests: {
+    description: "Stores pass/fail results and metrics from mechanical load testing of fiberglass products.",
+    columns: {
+      test_id: { description: "Unique identifier for a specific test run." },
+      item_id: { description: "The base item that was tested (e.g., '12ft Fiberglass Ladder')." },
+      serial_number_tested: { description: "The unique serial number of the specific item tested." },
+      test_date: { description: "Date the test was conducted." },
+      result: { description: "The outcome of the test ('Pass' or 'Fail')." },
+      load_lbs: { description: "The mechanical load in pounds applied during the test." },
+      deflection_in: { description: "The measured deflection in inches under load." },
+      technician_id: { description: "Identifier for the technician who performed the test." },
+    },
+  },
+  qc_swivel_tests: {
+    description: "Stores pass/fail results and metrics from swivel joint performance testing.",
+    columns: {
+      test_id: { description: "Unique identifier for a specific test run." },
+      item_id: { description: "The swivel joint item that was tested." },
+      serial_number_tested: { description: "The unique serial number of the specific item tested." },
+      test_date: { description: "Date the test was conducted." },
+      result: { description: "The outcome of the test ('Pass' or 'Fail')." },
+      rotation_torque_nm: { description: "The measured torque in newton-meters required for rotation." },
+      pressure_psi: { description: "The hydraulic pressure in PSI applied during the test." },
+      technician_id: { description: "Identifier for the technician who performed the test." },
+    },
+  },
+  cascade_locations: {
+    description: "Defines customer sites where managed 'Cascade' inventory is held.",
+    columns: {
+      location_id: { description: "Unique identifier for the customer's inventory location." },
+      customer_id: { description: "Foreign key linking to the p21_customers table." },
+      location_name: { description: "A descriptive name for the site (e.g., 'Site A - Warehouse 2')." },
+      address: { description: "The physical address of the cascade location." },
+    },
+  },
+  cascade_inventory: {
+    description: "Tracks current stock levels for items at each customer cascade location.",
+    columns: {
+      location_id: { description: "Foreign key linking to the cascade_locations table." },
+      item_id: { description: "Foreign key linking to the p21_items table." },
+      quantity: { description: "The current quantity of the item at the location." },
+      min_stock_level: { description: "The minimum stock level that triggers a replenishment order." },
+      max_stock_level: { description: "The target stock level for replenishment." },
+      last_updated: { description: "Timestamp of the last inventory count or update." },
+    },
+  },
+  mfg_work_orders: {
+    description: "Tracks manufacturing jobs and customer repairs.",
+    columns: {
+      work_order_id: { description: "Unique identifier for the work order." },
+      item_id_to_produce: { description: "The finished good item to be manufactured or repaired." },
+      quantity: { description: "The number of units to produce or repair." },
+      status: { description: "Current status of the work order (e.g., 'Pending', 'In Progress', 'Completed')." },
+      creation_date: { description: "Date the work order was created." },
+      due_date: { description: "The expected completion date." },
+      type: { description: "Type of work order, either 'Manufacturing' or 'Repair'." },
+    },
+  },
+  mfg_boms: {
+    description: "Bill of Materials. Defines the component items required to build a manufactured item.",
+    columns: {
+      bom_id: { description: "Unique ID for the bill of material line item." },
+      parent_item_id: { description: "The finished good (manufactured) item." },
+      component_item_id: { description: "A component item required to build the parent." },
+      quantity_per_parent: { description: "The quantity of the component needed for one parent." },
     },
   },
   wordpress_products: {

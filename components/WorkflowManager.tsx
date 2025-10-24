@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+
+import React, { useState, useRef, useEffect, useContext, useMemo } from 'react';
 import Card from './Card';
 import type { Workflow, WorkflowStatus, McpServer } from '../types';
 import { executeWorkflow, getWorkflows, saveWorkflow, deleteWorkflow as apiDeleteWorkflow, getLoadedMcpServers } from '../services/api';
+import { ErrorContext } from '../contexts/ErrorContext';
 
 const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: string; border: string; }> = {
   Live: { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500', border: 'border-green-500/50' },
@@ -10,10 +12,16 @@ const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: stri
 };
 const STATUSES: WorkflowStatus[] = ['Live', 'Test', 'Hold'];
 
-const SOURCES = ["CRM: HubSpot/RubberTree", "P21: New Picklist", "P21: Work Order", "Customer Portal: Repair Request", "Teams/Email: Customer Issue", "Kafka Topic: new_orders", "Data Lake: p21_sales_orders", "S3 Bucket: raw-logs"];
-const DESTINATIONS = ["P21: Sales Order", "P21: Inventory Update", "P21: Finished Goods Inventory", "P21: Service Order & Billing", "P21/POR: Credit Memo or Follow-up", "Data Lake: p21_sales_orders", "Data Lake: daily_sales_metrics", "Redshift Table: dim_products"];
+const GENERIC_SOURCES = ["Kafka Topic: new_orders", "Data Lake: p21_sales_orders", "S3 Bucket: raw-logs"];
+const GENERIC_DESTINATIONS = ["Data Lake: p21_sales_orders", "Data Lake: daily_sales_metrics", "Redshift Table: dim_products"];
 
-const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, transformerOptions: string[], onSave: (wf: Workflow) => void, onCancel: () => void }> = ({ workflow, transformerOptions, onSave, onCancel }) => {
+const WorkflowEditor: React.FC<{ 
+    workflow: Partial<Workflow>, 
+    sourceOptions: string[],
+    destinationOptions: string[],
+    onSave: (wf: Workflow) => void, 
+    onCancel: () => void 
+}> = ({ workflow, sourceOptions, destinationOptions, onSave, onCancel }) => {
     const [editedWorkflow, setEditedWorkflow] = useState<Partial<Workflow>>(workflow);
     
     const handleSubmit = (e: React.FormEvent) => {
@@ -36,7 +44,7 @@ const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, transformerOptions
         if ((editedWorkflow.sources || []).length < 4) {
             setEditedWorkflow(prev => ({
                 ...prev,
-                sources: [...(prev.sources || []), SOURCES[0]]
+                sources: [...(prev.sources || []), sourceOptions[0]]
             }));
         }
     };
@@ -78,7 +86,7 @@ const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, transformerOptions
                                             required
                                             className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                                         >
-                                            {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                            {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
                                         {(editedWorkflow.sources || []).length > 1 && (
                                             <button
@@ -105,15 +113,13 @@ const WorkflowEditor: React.FC<{ workflow: Partial<Workflow>, transformerOptions
                          <div className="text-slate-500 font-bold text-2xl hidden md:flex items-center justify-center pt-8">→</div>
                          <div className="pt-7">
                             <label className="block text-slate-400 mb-1">Transformer</label>
-                            <select name="transformer" value={editedWorkflow.transformer || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
-                                 {transformerOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
+                             <input name="transformer" value={editedWorkflow.transformer || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white" />
                          </div>
                          <div className="text-slate-500 font-bold text-2xl hidden md:flex items-center justify-center pt-8">→</div>
                          <div className="pt-7">
                             <label className="block text-slate-400 mb-1">Destination</label>
                             <select name="destination" value={editedWorkflow.destination || ''} onChange={handleChange} required className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
-                                 {DESTINATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                                 {destinationOptions.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
                          </div>
                          {editedWorkflow.transformer === 'Custom JavaScript' && (
@@ -184,13 +190,13 @@ const ExecutionLogModal: React.FC<{ workflow: Workflow, onClose: () => void, log
     );
 };
 
-const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflow) => void, onEdit: (workflow: Workflow) => void, onRun: (workflow: Workflow) => void, isRunning: boolean }> = ({ workflow, onDragStart, onEdit, onRun, isRunning }) => {
+const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflow) => void, onEdit: (workflow: Workflow) => void, onRun: (workflow: Workflow) => void, isRunning: boolean, isDisabled: boolean }> = ({ workflow, onDragStart, onEdit, onRun, isRunning, isDisabled }) => {
   const statusStyle = statusColors[workflow.status];
   
   return (
     <Card 
-      className="p-4 mb-4 cursor-grab active:cursor-grabbing"
-      draggable
+      className={`p-4 mb-4 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
+      draggable={!isDisabled}
       onDragStart={() => onDragStart(workflow)}
     >
       <div className="flex justify-between items-start">
@@ -208,8 +214,8 @@ const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflo
         <p className="text-xs text-slate-500">Last run: {workflow.lastExecuted}</p>
       </div>
        <div className="flex gap-2 mt-3 pt-3 border-t border-slate-700/50">
-            <button onClick={() => onRun(workflow)} disabled={isRunning} className="flex-1 px-2 py-1 bg-cyan-600 hover:bg-cyan-700 text-xs rounded font-semibold disabled:bg-slate-600">Run</button>
-            <button onClick={() => onEdit(workflow)} disabled={isRunning} className="flex-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs rounded font-semibold disabled:bg-slate-600">Edit</button>
+            <button onClick={() => onRun(workflow)} disabled={isRunning || isDisabled} className="flex-1 px-2 py-1 bg-cyan-600 hover:bg-cyan-700 text-xs rounded font-semibold disabled:bg-slate-600">Run</button>
+            <button onClick={() => onEdit(workflow)} disabled={isRunning || isDisabled} className="flex-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs rounded font-semibold disabled:bg-slate-600">Edit</button>
         </div>
     </Card>
   );
@@ -217,6 +223,7 @@ const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflo
 
 const WorkflowManager: React.FC = () => {
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
+    const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
     const [mode, setMode] = useState<'list' | 'kanban' | 'edit' | 'create'>('list');
     const [activeWorkflow, setActiveWorkflow] = useState<Partial<Workflow> | null>(null);
     const [runningWorkflow, setRunningWorkflow] = useState<Workflow | null>(null);
@@ -224,29 +231,49 @@ const WorkflowManager: React.FC = () => {
     const [isPipelineRunning, setIsPipelineRunning] = useState(false);
     const [draggedItem, setDraggedItem] = useState<Workflow | null>(null);
     const [dragOverStatus, setDragOverStatus] = useState<WorkflowStatus | null>(null);
-    const [transformerOptions, setTransformerOptions] = useState<string[]>([]);
+    
+    const { addError, clearErrorsBySource } = useContext(ErrorContext);
+    const ERROR_SOURCE = 'WorkflowManager';
+    
+    const mcpNames = useMemo(() => loadedMcps.map(s => s.name), [loadedMcps]);
 
     useEffect(() => {
-        getWorkflows().then(setWorkflows);
-        getLoadedMcpServers().then((servers) => {
-            const mcpTransformers = servers.map(s => `MCP: ${s.name}`);
-            const genericTransformers = [
-                "Custom JavaScript",
-                "Spark Job: process_order_data.py", 
-                "Spark Job: aggregate_sales.py",
-                "Power Automate: Qualify Lead", 
-                "Shop Floor System: Assign & Track",
-                "MES: Track Production Steps",
-                "Service Module: Track Repair Status",
-                "CI Tool: Log & Analyze",
-                "None"
-            ];
-            setTransformerOptions([...new Set([...mcpTransformers, ...genericTransformers])].sort());
-        });
+        const fetchData = async () => {
+            const [wfs, mcps] = await Promise.all([getWorkflows(), getLoadedMcpServers()]);
+            setWorkflows(wfs);
+            setLoadedMcps(mcps);
+        }
+        fetchData();
     }, []);
+    
+    useEffect(() => {
+        clearErrorsBySource(ERROR_SOURCE);
+        workflows.forEach(wf => {
+            const allEndpoints = [...wf.sources, wf.destination];
+            for (const endpoint of allEndpoints) {
+                if (endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
+                     addError(`Workflow "${wf.name}" is disabled: Required MCP "${endpoint.substring(5)}" is not loaded.`, ERROR_SOURCE);
+                }
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [workflows, mcpNames]);
+    
+    const isWorkflowDisabled = (workflow: Workflow): boolean => {
+        const allEndpoints = [...workflow.sources, workflow.destination];
+        for (const endpoint of allEndpoints) {
+            if (endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const sourceOptions = useMemo(() => [...GENERIC_SOURCES, ...mcpNames.map(name => `MCP: ${name}`)], [mcpNames]);
+    const destinationOptions = useMemo(() => [...GENERIC_DESTINATIONS, ...mcpNames.map(name => `MCP: ${name}`)], [mcpNames]);
 
     const handleCreate = () => {
-        setActiveWorkflow({ name: '', status: 'Test', sources: [SOURCES[0]], transformer: transformerOptions[0], destination: DESTINATIONS[0], trigger: 'On demand', repartition: 8});
+        setActiveWorkflow({ name: '', status: 'Test', sources: [sourceOptions[0]], transformer: 'Custom JavaScript', destination: destinationOptions[0], trigger: 'On demand', repartition: 8});
         setMode('create');
     };
 
@@ -284,6 +311,10 @@ const WorkflowManager: React.FC = () => {
     };
 
     const handleRunWorkflow = async (workflowToRun: Workflow) => {
+        if (isWorkflowDisabled(workflowToRun)) {
+            alert("Cannot run workflow. One of its required MCP servers is not loaded.");
+            return;
+        }
         setRunningWorkflow(workflowToRun);
         setExecutionLogs([]);
         setIsPipelineRunning(true);
@@ -322,7 +353,13 @@ const WorkflowManager: React.FC = () => {
     
     const renderContent = () => {
         if (mode === 'edit' || mode === 'create') {
-            return <WorkflowEditor workflow={activeWorkflow!} transformerOptions={transformerOptions} onSave={handleSave} onCancel={handleCancel} />;
+            return <WorkflowEditor 
+                workflow={activeWorkflow!} 
+                sourceOptions={sourceOptions}
+                destinationOptions={destinationOptions}
+                onSave={handleSave} 
+                onCancel={handleCancel} 
+            />;
         }
 
         if (mode === 'kanban') {
@@ -339,7 +376,7 @@ const WorkflowManager: React.FC = () => {
                         >
                             <h3 className={`text-lg font-bold text-white mb-4 pb-2 border-b-2 ${statusColors[status].border}`}>{status} ({workflows.filter(p => p.status === status).length})</h3>
                             <div className="space-y-4 overflow-y-auto h-[calc(100vh-300px)] pr-2">
-                               {workflows.filter(p => p.status === status).map(p => <KanbanCard key={p.id} workflow={p} onDragStart={handleDragStart} onEdit={handleEdit} onRun={handleRunWorkflow} isRunning={isPipelineRunning} />)}
+                               {workflows.filter(p => p.status === status).map(p => <KanbanCard key={p.id} workflow={p} onDragStart={handleDragStart} onEdit={handleEdit} onRun={handleRunWorkflow} isRunning={isPipelineRunning} isDisabled={isWorkflowDisabled(p)} />)}
                             </div>
                         </div>
                     ))}
@@ -349,37 +386,40 @@ const WorkflowManager: React.FC = () => {
 
         return (
             <div className="space-y-4">
-                {workflows.map(wf => (
-                    <Card key={wf.id}>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-                            <div className="md:col-span-1">
-                                <h2 className="text-xl font-bold text-white">{wf.name}</h2>
-                                <span className={`px-3 py-1 text-sm font-semibold rounded-full border ${statusColors[wf.status].bg} ${statusColors[wf.status].text}`}>
-                                    {wf.status}
-                                </span>
-                                <p className="text-xs text-slate-400 mt-2">Last run: {wf.lastExecuted}</p>
+                {workflows.map(wf => {
+                    const isDisabled = isWorkflowDisabled(wf);
+                    return (
+                        <Card key={wf.id} className={`${isDisabled ? 'opacity-60 bg-slate-800/20' : ''}`}>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+                                <div className="md:col-span-1">
+                                    <h2 className="text-xl font-bold text-white">{wf.name}</h2>
+                                    <span className={`px-3 py-1 text-sm font-semibold rounded-full border ${statusColors[wf.status].bg} ${statusColors[wf.status].text}`}>
+                                        {wf.status}
+                                    </span>
+                                    <p className="text-xs text-slate-400 mt-2">Last run: {wf.lastExecuted}</p>
+                                </div>
+                                <div className="md:col-span-2">
+                                        <div className="flex flex-col space-y-2 text-sm">
+                                        <div className="flex items-start"><span className="font-semibold text-slate-400 w-24 flex-shrink-0">Source(s):</span> <div className="flex flex-col">{wf.sources.map((s, i) => <span key={i} className="font-mono text-slate-300">{s}</span>)}</div></div>
+                                        <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Transformer:</span> <span className="font-mono text-slate-300">{wf.transformer}</span></div>
+                                        <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Destination:</span> <span className="font-mono text-slate-300">{wf.destination}</span></div>
+                                        </div>
+                                </div>
+                                <div className="md:col-span-1 flex md:flex-col md:items-end gap-2">
+                                    <button onClick={() => handleRunWorkflow(wf)} disabled={isPipelineRunning || isDisabled} className="w-full md:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                        Run
+                                    </button>
+                                    <button onClick={() => handleEdit(wf)} disabled={isPipelineRunning || isDisabled} className="w-full md:w-auto px-4 py-2 bg-slate-700 hover:bg-slate-600 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                        Edit
+                                    </button>
+                                    <button onClick={() => handleDelete(wf.id)} disabled={isPipelineRunning} className="w-full md:w-auto px-4 py-2 bg-red-800/80 hover:bg-red-800 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                        Delete
+                                    </button>
+                                </div>
                             </div>
-                            <div className="md:col-span-2">
-                                    <div className="flex flex-col space-y-2 text-sm">
-                                    <div className="flex items-start"><span className="font-semibold text-slate-400 w-24 flex-shrink-0">Source(s):</span> <div className="flex flex-col">{wf.sources.map((s, i) => <span key={i} className="font-mono text-slate-300">{s}</span>)}</div></div>
-                                    <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Transformer:</span> <span className="font-mono text-slate-300">{wf.transformer}</span></div>
-                                    <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Destination:</span> <span className="font-mono text-slate-300">{wf.destination}</span></div>
-                                    </div>
-                            </div>
-                            <div className="md:col-span-1 flex md:flex-col md:items-end gap-2">
-                                <button onClick={() => handleRunWorkflow(wf)} disabled={isPipelineRunning} className="w-full md:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
-                                    Run
-                                </button>
-                                <button onClick={() => handleEdit(wf)} disabled={isPipelineRunning} className="w-full md:w-auto px-4 py-2 bg-slate-700 hover:bg-slate-600 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
-                                    Edit
-                                </button>
-                                <button onClick={() => handleDelete(wf.id)} disabled={isPipelineRunning} className="w-full md:w-auto px-4 py-2 bg-red-800/80 hover:bg-red-800 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">
-                                    Delete
-                                </button>
-                            </div>
-                        </div>
-                    </Card>
-                ))}
+                        </Card>
+                    );
+                })}
             </div>
         );
     };

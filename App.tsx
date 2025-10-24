@@ -14,6 +14,8 @@ import McpProtocol from './components/McpProtocol';
 import IoManagement from './components/IoManagement';
 import { initializeDatabase } from './services/api';
 import HelpModal from './components/HelpModal';
+import { ErrorProvider } from './contexts/ErrorContext';
+import ErrorHeader from './components/ErrorHeader';
 
 export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'mcp-protocol' | 'io-management';
 
@@ -92,24 +94,29 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-200">
-      <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
-      <main className="flex-1 p-8 overflow-y-auto">
-        {renderContent()}
-      </main>
+    <ErrorProvider>
+      <div className="flex flex-col h-screen bg-slate-900 text-slate-200">
+        <ErrorHeader />
+        <div className="flex flex-1 min-h-0">
+          <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+          <main className="flex-1 p-8 overflow-y-auto">
+            {renderContent()}
+          </main>
+        </div>
 
-      <button
-        onClick={() => setIsHelpOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-cyan-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-cyan-600 transition-all duration-200 transform hover:scale-110 z-40"
-        aria-label="Open help guide"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </button>
+        <button
+          onClick={() => setIsHelpOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-cyan-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-cyan-600 transition-all duration-200 transform hover:scale-110 z-40"
+          aria-label="Open help guide"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
 
-      <HelpModal show={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
-    </div>
+        <HelpModal show={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+      </div>
+    </ErrorProvider>
   );
 };
 

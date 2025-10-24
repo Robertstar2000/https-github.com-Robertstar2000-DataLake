@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getLoadedMcpServers } from '../services/api';
 import type { McpServer } from '../types';
+import { mcpFunctions, McpFunction } from '../data/mcpFunctions';
 
 // Mock data and types
 type QueryFrequency = 'real-time' | '5m' | '1h' | 'daily';
@@ -23,55 +24,15 @@ interface IoLog {
     message: string;
 }
 
-const MOCK_LOG_TEMPLATES: Record<string, { uploads: string[], downloads: string[] }> = {
-    'Epicore P21': {
-        uploads: [
-            "Received {n} new sales orders. Writing to `p21_sales_orders`.",
-            "Ingested customer update for '{c_name}'. Writing to `p21_customers`.",
-            "Received inventory adjustment for item '{sku}'. Writing to `p21_items`.",
-        ],
-        downloads: [
-            "Pushed 'Shipped' status update for order #{n} to P21.",
-            "Sent new customer record for '{c_name}' to P21.",
-            "Pushed stock level updates for {n} items to P21.",
-        ]
-    },
-    'Point of Rental (POR)': {
-        uploads: [
-            "Received {n} new rental contracts. Writing to `por_rental_contracts`.",
-            "Ingested asset status update for '{asset}'. Writing to `por_rental_assets`.",
-        ],
-        downloads: [
-            "Pushed rental availability for asset '{asset}' to POR.",
-            "Sent customer billing information for contract #{n} to POR.",
-        ]
-    },
-    'WordPress Interface': {
-        uploads: [
-            "Received {n} new product reviews. Writing to vector store.",
-            "Ingested product description update for '{sku}'. Writing to `wordpress_products`.",
-        ],
-        downloads: [
-            "Pushed updated stock levels for {n} items to WordPress.",
-            "Sent updated pricing for '{sku}' to WordPress.",
-        ]
-    },
-    'Default': {
-        uploads: ["Received {n} data packets. Writing to data lake.", "Ingested new records batch."],
-        downloads: ["Pushed data analysis results.", "Sent requested data subset."]
-    }
-};
-
 const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const getRandomElement = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): IoLog => {
-    // Attempt to find a specific template, otherwise use a default based on keywords
-    const specificTemplate = MOCK_LOG_TEMPLATES[mcpName];
-    const templateKey = Object.keys(MOCK_LOG_TEMPLATES).find(key => mcpName.includes(key)) || 'Default';
-    const templates = specificTemplate || MOCK_LOG_TEMPLATES[templateKey];
-
-    let message = getRandomElement(templates[type]);
+const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): { log: IoLog; functionName: string } => {
+    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.includes(key)) || 'Default';
+    const availableFunctions = mcpFunctions[templateKey][type];
+    const selectedFunction = getRandomElement(availableFunctions);
+    
+    let message = selectedFunction.template;
 
     // Replace placeholders
     message = message.replace('{n}', String(getRandomInt(1, 20)));
@@ -79,21 +40,25 @@ const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): IoLog 
     message = message.replace('{sku}', getRandomElement(['CB-PRO', 'QM-01', 'SW-JOINT-V2']));
     message = message.replace('{asset}', getRandomElement(['Excavator EX-500', 'Scissor Lift SL-30']));
 
-    return {
+    const log = {
         id: Date.now() + Math.random(),
         timestamp: new Date().toLocaleTimeString(),
         message,
     };
+    
+    return { log, functionName: selectedFunction.name };
 };
 
 const IoManagement: React.FC = () => {
     const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
     const [selectedMcpId, setSelectedMcpId] = useState<string | null>(null);
+    const [highlightedFunction, setHighlightedFunction] = useState<{ type: 'uploads' | 'downloads', name: string } | null>(null);
     
     const [configs, setConfigs] = useState<Record<string, McpConfig>>({});
     const [logs, setLogs] = useState<Record<string, { uploads: IoLog[], downloads: IoLog[] }>>({});
 
     const intervalRef = useRef<number | null>(null);
+    const highlightTimeoutRef = useRef<number | null>(null);
 
     useEffect(() => {
         const loadServers = async () => {
@@ -123,6 +88,7 @@ const IoManagement: React.FC = () => {
 
     useEffect(() => {
         if (intervalRef.current) clearInterval(intervalRef.current);
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
         if (selectedMcpId) {
             const selectedMcp = mcpServers.find(s => s.id === selectedMcpId);
@@ -130,7 +96,7 @@ const IoManagement: React.FC = () => {
 
             intervalRef.current = window.setInterval(() => {
                 const logType = Math.random() > 0.5 ? 'uploads' : 'downloads';
-                const newLog = generateMockLog(selectedMcp.name, logType);
+                const { log: newLog, functionName } = generateMockLog(selectedMcp.name, logType);
                 
                 setLogs(prevLogs => ({
                     ...prevLogs,
@@ -139,12 +105,17 @@ const IoManagement: React.FC = () => {
                         [logType]: [newLog, ...prevLogs[selectedMcpId][logType]].slice(0, 50)
                     }
                 }));
+                
+                setHighlightedFunction({ type: logType, name: functionName });
+                if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+                highlightTimeoutRef.current = window.setTimeout(() => setHighlightedFunction(null), 2000);
 
             }, 2500);
         }
 
         return () => {
             if (intervalRef.current) clearInterval(intervalRef.current);
+            if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         };
     }, [selectedMcpId, mcpServers]);
 
@@ -196,10 +167,18 @@ const IoManagement: React.FC = () => {
                         </div>
                     ) : (
                         <div className="flex flex-col h-full">
-                            <h2 className="text-2xl font-bold text-white">{selectedMcp.name}</h2>
-                            <p className="text-slate-400 mb-4">{selectedMcp.description}</p>
+                            <div className="flex-none">
+                                <h2 className="text-2xl font-bold text-white">{selectedMcp.name}</h2>
+                                <p className="text-slate-400 mb-4">{selectedMcp.description}</p>
+                            </div>
                             
-                            {/* Config Section */}
+                            {/* Function List Section */}
+                            <div className="flex-none grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <FunctionList title="Upload Functions" mcpName={selectedMcp.name} type="uploads" highlightedFunction={highlightedFunction} />
+                                <FunctionList title="Download Functions" mcpName={selectedMcp.name} type="downloads" highlightedFunction={highlightedFunction} />
+                            </div>
+
+                             {/* Config Section */}
                             <div className="flex-none mb-6 p-4 bg-slate-900/50 rounded-lg">
                                 <label htmlFor="query-frequency" className="block text-slate-300 font-semibold mb-2">Query Frequency</label>
                                 <select
@@ -229,6 +208,40 @@ const IoManagement: React.FC = () => {
         </div>
     );
 };
+
+const FunctionList: React.FC<{
+    title: string;
+    mcpName: string;
+    type: 'uploads' | 'downloads';
+    highlightedFunction: { type: 'uploads' | 'downloads'; name: string } | null;
+}> = ({ title, mcpName, type, highlightedFunction }) => {
+    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.includes(key)) || 'Default';
+    const functions = mcpFunctions[templateKey][type];
+
+    return (
+        <div className="bg-slate-900/50 rounded-lg p-3">
+            <h3 className="text-md font-semibold text-slate-200 mb-2">{title}</h3>
+            <ul className="space-y-1">
+                {functions.map(func => {
+                    const isHighlighted = highlightedFunction?.type === type && highlightedFunction?.name === func.name;
+                    return (
+                        <li 
+                            key={func.name} 
+                            className={`px-2 py-1 text-sm font-mono rounded-md transition-all duration-200 ${
+                                isHighlighted 
+                                ? 'bg-cyan-500/20 text-cyan-300 scale-105' 
+                                : 'bg-slate-800/60 text-slate-400'
+                            }`}
+                        >
+                            {func.name}
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
+    );
+};
+
 
 const LogPanel: React.FC<{ title: string; logs: IoLog[]; direction: 'up' | 'down'}> = ({ title, logs, direction }) => {
     const Icon = direction === 'up' ? 

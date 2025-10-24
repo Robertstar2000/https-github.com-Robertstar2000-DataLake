@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
 import { executeQuery as executeDbQuery, getTableSchemas } from './be-db';
@@ -83,18 +84,20 @@ export const processUnstructuredData = async (
 // --- From AIAnalyst.tsx ---
 let analystChat: Chat | null = null;
 
-export const initializeAiAnalyst = (): { displaySchema: string } => {
+export const initializeAiAnalyst = async (): Promise<{ displaySchema: string }> => {
     if (!ai) {
         throw new Error("Gemini API key is not configured.");
     }
-    const schemas = getTableSchemas();
+    const schemas = await getTableSchemas();
     
+// FIX: `cols` is an object { columns: string, ... }. Access the `columns` property.
     const displaySchema = Object.entries(schemas)
-        .map(([table, cols]) => `Table **${table}**:\n${cols.split(', ').map(c => `  - \`${c}\``).join('\n')}`)
+        .map(([table, cols]) => `Table **${table}**:\n${cols.columns.split(', ').map(c => `  - \`${c}\``).join('\n')}`)
         .join('\n\n');
         
+// FIX: `cols` is an object. Access the `columns` property for the string value.
     const contextSchema = Object.entries(schemas)
-        .map(([table, cols]) => `Table "${table}" has columns: ${cols}`)
+        .map(([table, cols]) => `Table "${table}" has columns: ${cols.columns}`)
         .join('\n');
     
     const executeQuerySqlDeclaration: FunctionDeclaration = {
@@ -112,20 +115,44 @@ export const initializeAiAnalyst = (): { displaySchema: string } => {
       },
     };
 
+    const displayChartDeclaration: FunctionDeclaration = {
+      name: 'displayChart',
+      parameters: {
+          type: Type.OBJECT,
+          description: 'Displays a chart to the user. Use this after you have retrieved data with executeQuerySql.',
+          properties: {
+              chartType: { type: Type.STRING, description: "The type of chart to display. Can be 'Bar', 'Line', or 'Pie'." },
+              title: { type: Type.STRING, description: 'A descriptive title for the chart.' },
+              data: {
+                  type: Type.ARRAY,
+                  description: 'The data for the chart, which must be an array of objects with "name" and "value" keys. This usually comes from executeQuerySql.',
+                  items: { 
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING },
+                      value: { type: Type.NUMBER }
+                    }
+                  }
+              }
+          },
+          required: ['chartType', 'title', 'data'],
+      },
+    };
+
     const systemInstruction = `You are an expert data analyst. Your task is to answer user questions based on the provided SQL table schemas.
 - When asked a question that requires specific data from the database, you MUST use the \`executeQuerySql\` tool to get the information.
 - Construct a valid SQL query based on the user's question and the available schemas.
 - Do not make up data.
 - Once you receive the data from the tool, summarize the result in a clear, user-friendly, natural language response.
-- If the result is a list of items, format it as a markdown list.
-- If the query returns no results, state that clearly.
+- When calling \`executeQuerySql\` for a chart, you MUST alias the columns to 'name' for the label axis and 'value' for the data axis. For example: \`SELECT product_name as name, SUM(price) as value FROM ... GROUP BY name\`.
+- After you receive data from a query that was for a chart, you MUST call the \`displayChart\` tool to show the visualization to the user. You should also provide a brief text summary of the chart's findings.
 - Here are the table schemas: ${contextSchema}`;
 
     analystChat = ai.chats.create({
       model: 'gemini-2.5-flash',
       config: {
         systemInstruction: systemInstruction,
-        tools: [{ functionDeclarations: [executeQuerySqlDeclaration] }],
+        tools: [{ functionDeclarations: [executeQuerySqlDeclaration, displayChartDeclaration] }],
       },
     });
       
@@ -138,12 +165,10 @@ export async function* getAiAnalystResponseStream(query: string) {
     }
 
     try {
-        // Step 1: Send user query to the model
         yield { status: 'thinking', text: 'Analyzing your question...' };
         await ensureApiRateLimit();
         const response = await analystChat.sendMessage({ message: query });
     
-        // Step 2: Check for a function call from the model
         const functionCalls = response.functionCalls;
         if (functionCalls && functionCalls.length > 0) {
             const fc = functionCalls[0];
@@ -151,11 +176,9 @@ export async function* getAiAnalystResponseStream(query: string) {
                 const sqlQuery = fc.args.query;
                 yield { status: 'generating_sql', text: `I've generated the following SQL query:\n\n\`\`\`sql\n${sqlQuery}\n\`\`\`` };
                 
-                // Step 3: Execute the SQL query
                 yield { status: 'querying', text: 'Executing query against the database...' };
-                const dbResult = executeDbQuery(sqlQuery);
+                const dbResult = await executeDbQuery(sqlQuery);
     
-                // Step 4: Send the database results back to the model
                 yield { status: 'summarizing', text: 'Interpreting database results...' };
                 await ensureApiRateLimit();
                 const toolResponseStream = await analystChat.sendMessageStream({
@@ -168,15 +191,22 @@ export async function* getAiAnalystResponseStream(query: string) {
                     }],
                 });
     
-                // Step 5: Stream the final natural language answer
                 for await (const chunk of toolResponseStream) {
-                    yield { status: 'final_answer', text: chunk.text };
+                    if (chunk.text) {
+                      yield { status: 'final_answer', text: chunk.text };
+                    }
+                    if (chunk.functionCalls) {
+                      for (const toolCall of chunk.functionCalls) {
+                        if (toolCall.name === 'displayChart') {
+                          yield { status: 'chart_data', chart: toolCall.args };
+                        }
+                      }
+                    }
                 }
             } else {
                  yield { status: 'error', text: `Error: The AI called an unsupported tool: ${fc.name}.` };
             }
         } else {
-            // If the model replies directly without a tool call
             yield { status: 'final_answer', text: response.text };
         }
     } catch (error: any) {
@@ -198,13 +228,15 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
         throw new Error("Gemini API key is not configured.");
     }
 
-    const tableSchemas = getTableSchemas();
+    const tableSchemas = await getTableSchemas();
     
-    const schemaContext = Object.entries(tableSchemas).map(([tableName, columns]) => {
+    const schemaContext = Object.entries(tableSchemas).map(([tableName, tableData]) => {
         const tableMeta = schemaMetadata[tableName];
-        const columnMeta = (typeof columns === 'string' ? columns : '').split(', ').map(colStr => {
+// FIX: `tableData` is an object { columns: string, ... }. Access its `columns` property. The old code was a logic bug.
+        const columnMeta = tableData.columns.split(', ').map(colStr => {
             const colName = colStr.split(' ')[0];
-            const colDescription = tableMeta?.columns[colName]?.description || '';
+// FIX: `tableMeta` can be undefined. Use optional chaining to prevent a runtime error.
+            const colDescription = tableMeta?.columns?.[colName]?.description || '';
             return `  - ${colName}: ${colDescription}`;
         }).join('\n');
         return `Table: ${tableName}\nDescription: ${tableMeta?.description || 'N/A'}\nColumns:\n${columnMeta}`;

@@ -1,5 +1,3 @@
-
-
 import * as beDb from './be-db';
 import * as beGemini from './be-gemini';
 import * as bePipelines from './be-pipelines';
@@ -26,10 +24,15 @@ export const executeQuery = async (query: string): Promise<{ headers: string[], 
     return beDb.executeQuery(query);
 };
 
-export const getTableSchemas = async (): Promise<Record<string, string>> => {
+export const getTableSchemas = async (): Promise<Record<string, { columns: string, mcpSource: string | null }>> => {
     await simulateLatency();
     return beDb.getTableSchemas();
 };
+
+export const createTableFromMcp = async (payload: { tableName: string, columns: string, mcpSource: string }): Promise<{ success: boolean, message: string }> => {
+    await simulateLatency(500);
+    return beDb.createTableFromMcp(payload);
+}
 
 export const findSimilarDocuments = async (docId: string, count: number = 3): Promise<UnstructuredDocument[]> => {
     await simulateLatency();

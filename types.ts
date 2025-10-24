@@ -37,7 +37,8 @@ export interface McpServer {
   id:string;
   name: string;
   url: string;
-  type: 'Official' | 'Custom';
+  // FIX: Broaden the type to include new categories for better organization.
+  type: 'Official' | 'Custom' | 'DocumentCollection' | 'ExternalAPI';
   description: string;
   // FIX: Added optional isLoaded property to align with component and backend logic.
   isLoaded?: boolean;

@@ -1,4 +1,5 @@
 
+
 import { executeQuery } from './be-db';
 import type { Workflow } from '../types';
 
@@ -9,13 +10,16 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // This will simulate adding a new order to the P21 ERP system
 const runIngestCustomerOrders = async (logCallback: (message: string) => void): Promise<boolean> => {
     // Get random customer and items from the DB
-    const customers = executeQuery("SELECT customer_id FROM p21_customers ORDER BY RANDOM() LIMIT 1").data;
-    const items = executeQuery("SELECT item_id, unit_price FROM p21_items ORDER BY RANDOM() LIMIT 2").data;
+    const customersResult = await executeQuery("SELECT customer_id FROM p21_customers ORDER BY RANDOM() LIMIT 1");
+    const itemsResult = await executeQuery("SELECT item_id, unit_price FROM p21_items ORDER BY RANDOM() LIMIT 2");
     
-    if (customers.length === 0 || items.length === 0) {
+    if ('error' in customersResult || 'error' in itemsResult || customersResult.data.length === 0 || itemsResult.data.length === 0) {
         logCallback(`[ERROR] No customers or items found in the database to create a new order.`);
         return false;
     }
+    
+    const customers = customersResult.data;
+    const items = itemsResult.data;
 
     const customerId = customers[0].customer_id;
     const orderNum = Math.floor(1000 + Math.random() * 9000);
@@ -41,8 +45,8 @@ const runIngestCustomerOrders = async (logCallback: (message: string) => void): 
         INSERT INTO p21_sales_orders (order_num, customer_id, order_date, total_amount, status)
         VALUES (${orderNum}, ${customerId}, '${orderDate}', ${totalAmount.toFixed(2)}, 'Processing');
     `;
-    const orderResult = executeQuery(orderQuery);
-    if (orderResult.error) {
+    const orderResult = await executeQuery(orderQuery);
+    if ('error' in orderResult) {
         logCallback(`[ERROR] Failed to insert new sales order: ${orderResult.error}`);
         return false;
     }
@@ -57,8 +61,8 @@ const runIngestCustomerOrders = async (logCallback: (message: string) => void): 
             INSERT INTO p21_sales_order_lines (order_num, item_id, quantity, price_per_unit)
             VALUES (${orderNum}, '${line.item_id}', ${line.quantity}, ${line.price_per_unit});
         `;
-        const lineResult = executeQuery(lineQuery);
-        if (lineResult.error) {
+        const lineResult = await executeQuery(lineQuery);
+        if ('error' in lineResult) {
             logCallback(`[ERROR] Failed to insert order line for item ${line.item_id}: ${lineResult.error}`);
             // In a real scenario, you'd handle rollback here
             return false;
@@ -76,8 +80,8 @@ const runCalculateDailyMetrics = async (logCallback: (message: string) => void):
 
     await delay(300);
     logCallback(`[INFO] Preparing destination table '${metricsTable}'...`);
-    executeQuery(`DROP TABLE IF EXISTS ${metricsTable};`);
-    executeQuery(`
+    await executeQuery(`DROP TABLE IF EXISTS ${metricsTable};`);
+    await executeQuery(`
         CREATE TABLE ${metricsTable} (
             report_date TEXT PRIMARY KEY,
             total_orders INTEGER,
@@ -96,9 +100,9 @@ const runCalculateDailyMetrics = async (logCallback: (message: string) => void):
         FROM p21_sales_orders
         GROUP BY order_date;
     `;
-    const aggResult = executeQuery(aggregationQuery);
+    const aggResult = await executeQuery(aggregationQuery);
 
-    if (aggResult.error) {
+    if ('error' in aggResult) {
         logCallback(`[ERROR] Failed to aggregate data: ${aggResult.error}`);
         return false;
     }
@@ -113,7 +117,7 @@ const runCalculateDailyMetrics = async (logCallback: (message: string) => void):
                 INSERT INTO ${metricsTable} (report_date, total_orders, total_revenue, avg_order_value)
                 VALUES ('${row.report_date}', ${row.total_orders}, ${row.total_revenue.toFixed(2)}, ${avg_order_value.toFixed(2)});
             `;
-            executeQuery(insertQuery);
+            await executeQuery(insertQuery);
         }
         await delay(500);
         logCallback(`[INFO] Writing ${aggResult.data.length} records to destination '${metricsTable}'.`);
